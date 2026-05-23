@@ -3,6 +3,7 @@ import os
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 # ==============================================================================
 # RULE 1: DATA PERSISTENCE (JSON ENGINE WITH STATE MIRRORING)
@@ -57,6 +58,21 @@ def sync_input_to_db(key):
 # ==============================================================================
 CENTERS = ["Istanbul Tower", "Elsifa Medical Center"]
 
+# Path to your uploaded tooth diagram
+TOOTH_DIAGRAM_PATH = "tooth_grid.png" # Place your uploaded image as this filename in the app directory
+
+# Master definition of Click Zones [x_min, y_min, x_max, y_max, label]
+# Based on common tooth mapping for your diagram
+CLICK_ZONES = [
+    # Top Row (Deciduous & Permanent)
+    [31, 28, 97, 85, "1.8"], [115, 28, 180, 85, "1.7"], [200, 28, 271, 85, "1.6"], [289, 28, 353, 85, "1.5"], [374, 28, 437, 85, "1.4"], [456, 28, 517, 85, "1.3"], [539, 28, 600, 85, "1.2"], [623, 28, 680, 85, "1.1"],
+    [717, 28, 773, 85, "2.1"], [798, 28, 855, 85, "2.2"], [877, 28, 936, 85, "2.3"], [959, 28, 1022, 85, "2.4"], [1042, 28, 1109, 85, "2.5"], [1129, 28, 1201, 85, "2.6"], [1219, 28, 1286, 85, "2.7"], [1305, 28, 1373, 85, "2.8"],
+    # Middle Row (Adult/Labels)
+    [290, 105, 350, 163, "Upper Right Q"], [370, 105, 437, 163, "Upper Right Q"], [457, 105, 517, 163, "Upper Left Q"], [539, 105, 597, 163, "Upper Left Q"],
+    [31, 218, 95, 275, "4.8"], [117, 218, 178, 275, "4.7"], [200, 218, 271, 275, "4.6"], [289, 218, 350, 275, "4.5"], [373, 218, 437, 275, "4.4"], [456, 218, 517, 275, "4.3"], [539, 218, 598, 275, "4.2"], [623, 218, 681, 275, "4.1"],
+    [717, 218, 774, 275, "3.1"], [797, 218, 856, 275, "3.2"], [877, 218, 937, 275, "3.3"], [959, 218, 1022, 275, "3.4"], [1042, 218, 1107, 275, "3.5"], [1129, 218, 1200, 275, "3.6"], [1218, 218, 1286, 275, "3.7"], [1305, 218, 1373, 275, "3.8"],
+]
+
 # Seed initial customizable Treatment Prices Database matching your file models
 get_state_val("treatment_catalog_db", {
     "Children Dentistry": {
@@ -74,7 +90,7 @@ get_state_val("treatment_catalog_db", {
     }
 })
 
-# Seed base Patient Registration database record map
+# Base Patient Registration records
 get_state_val("patients_registry", {
     "P0001": {"name": "Yusuf Demir", "phone": "+90 532 123 4567", "center": "Istanbul Tower", "age": 28, "birth_date": "1998-05-12"},
     "P0002": {"name": "Amina El-Amin", "phone": "+90 555 987 6543", "center": "Elsifa Medical Center", "age": 9, "birth_date": "2017-08-20"}
@@ -83,7 +99,7 @@ get_state_val("patients_registry", {
 # Central tooth history tracker
 get_state_val("tooth_history_ledger", {
     "P0001": {
-        "16": [{"date": "2026-02-15", "treatment": "Composite Filling", "center": "Istanbul Tower", "notes": "Mesial decay managed."}]
+        "16 Mesial": [{"date": "2026-02-15", "treatment": "Composite Filling", "center": "Istanbul Tower", "notes": "Mesial decay managed."}]
     }
 })
 
@@ -94,13 +110,13 @@ get_state_val("session_treatment", "Composite Filling")
 get_state_val("session_selected_teeth", [])
 get_state_val("session_notes", "")
 
-# Add Patient Form Working States
+# Add Patient Form States
 get_state_val("new_pat_name", "")
 get_state_val("new_pat_phone", "")
 get_state_val("new_pat_birth", date(2000, 1, 1))
-get_state_val("new_pat_center", "Istanbul Tower")
+get_state_val("new_pat_center", CENTERS[0])
 
-# Price Catalog Editor Working States
+# Price Catalog Editor States
 get_state_val("edit_cat_select", "Adult Dentistry")
 get_state_val("edit_treat_select", "Composite Filling")
 get_state_val("edit_price_val", 300.0)
@@ -109,295 +125,126 @@ get_state_val("edit_price_val", 300.0)
 # RULE 4: CLEAN STATE CALLBACKS (PROCESS FLOW CONTROL)
 # ==============================================================================
 def cb_add_new_patient():
-    """Generates next incremental ID and saves a fresh profile registry."""
     name = st.session_state.get("new_pat_name", "").strip()
     phone = st.session_state.get("new_pat_phone", "").strip()
     bdate = st.session_state.get("new_pat_birth")
     center = st.session_state.get("new_pat_center")
-    
-    if not name or not phone:
-        st.sidebar.error("Validation Failed: Please fill in both Name and Phone Fields.")
-        return
-        
+    if not name or not phone: return
     registry = st.session_state.get("patients_registry", {})
-    next_index = len(registry) + 1
-    new_code = f"P{next_index:04d}"
-    
-    # Pre-calculate age inside callback
-    today = date.today()
-    calc_age = today.year - bdate.year - ((today.month, today.day) < (bdate.month, bdate.day))
-    
-    registry[new_code] = {
-        "name": name,
-        "phone": phone,
-        "center": center,
-        "age": max(0, calc_age),
-        "birth_date": bdate.isoformat()
-    }
-    
+    new_code = f"P{len(registry)+1:04d}"
+    registry[new_code] = {"name": name, "phone": phone, "center": center, "age": date.today().year - bdate.year, "birth_date": bdate.isoformat()}
     st.session_state["patients_registry"] = registry
     sync_input_to_db("patients_registry")
-    
-    # Flush fields to baseline defaults
-    st.session_state["new_pat_name"] = ""
-    st.session_state["new_pat_phone"] = ""
-    sync_input_to_db("new_pat_name")
-    sync_input_to_db("new_pat_phone")
-    st.sidebar.success(f"Successfully registered patient {name} under {new_code}!")
+    for k in ["new_pat_name", "new_pat_phone"]: st.session_state[k] = ""
+    st.sidebar.success(f"Registered patient {name} under {new_code}!")
 
 def cb_update_treatment_price():
-    """Updates the master tariff dictionary based on user adjustments."""
-    cat = st.session_state.get("edit_cat_select")
-    treat = st.session_state.get("edit_treat_select")
-    new_price = st.session_state.get("edit_price_val", 0.0)
-    
     catalog = st.session_state.get("treatment_catalog_db", {})
-    if cat in catalog and treat in catalog[cat]:
-        catalog[cat][treat] = float(new_price)
-        st.session_state["treatment_catalog_db"] = catalog
-        sync_input_to_db("treatment_catalog_db")
-        st.sidebar.success(f"Updated price for '{treat}' to ${new_price:,.2f}")
+    catalog[st.session_state["edit_cat_select"]][st.session_state["edit_treat_select"]] = float(st.session_state["edit_price_val"])
+    st.session_state["treatment_catalog_db"] = catalog
+    sync_input_to_db("treatment_catalog_db")
 
-def cb_sync_editor_fields():
-    """Pre-fills current database rate inside the manual selection fields."""
-    cat = st.session_state.get("edit_cat_select")
-    treat = st.session_state.get("edit_treat_select")
-    catalog = st.session_state.get("treatment_catalog_db", {})
-    st.session_state["edit_price_val"] = catalog.get(cat, {}).get(treat, 0.0)
-
-def cb_toggle_tooth_cell(tooth_str):
-    """Processes real mouse vector state selections cleanly."""
+def cb_toggle_tooth_label(label_str):
     current_list = list(st.session_state.get("session_selected_teeth", []))
-    if tooth_str in current_list:
-        current_list.remove(tooth_str)
-    else:
-        current_list.append(tooth_str)
+    if label_str in current_list: current_list.remove(label_str)
+    else: current_list.append(label_str)
     st.session_state["session_selected_teeth"] = current_list
     sync_input_to_db("session_selected_teeth")
 
 def cb_save_session_log():
-    """Commits clinical operational entries straight into the persistent history matrix."""
-    pid = st.session_state.get("session_patient_id")
-    cat = st.session_state.get("session_category")
-    treat = st.session_state.get("session_treatment")
-    teeth = st.session_state.get("session_selected_teeth", [])
-    notes = st.session_state.get("session_notes", "")
-    
-    if not teeth:
-        st.sidebar.error("Operation Denied: Choose target teeth with your mouse grid.")
-        return
-        
-    patients = st.session_state.get("patients_registry", {})
-    center = patients.get(pid, {}).get("center", "Unassigned Center")
+    pid, cat, treat, teeth = st.session_state["session_patient_id"], st.session_state["session_category"], st.session_state["session_treatment"], st.session_state["session_selected_teeth"]
+    if not teeth: return
+    center = st.session_state["patients_registry"][pid]["center"]
     history = st.session_state.get("tooth_history_ledger", {})
-    
-    if pid not in history:
-        history[pid] = {}
-        
+    if pid not in history: history[pid] = {}
     for t in teeth:
-        if t not in history[pid]:
-            history[pid][t] = []
-        history[pid][t].append({
-            "date": date.today().isoformat(),
-            "treatment": f"[{cat}] {treat}",
-            "center": center,
-            "notes": notes
-        })
-        
+        if t not in history[pid]: history[pid][t] = []
+        history[pid][t].append({"date": date.today().isoformat(), "treatment": f"[{cat}] {treat}", "center": center, "notes": st.session_state["session_notes"]})
     st.session_state["tooth_history_ledger"] = history
     sync_input_to_db("tooth_history_ledger")
-    
-    # Clean working parameters
     st.session_state["session_selected_teeth"] = []
     st.session_state["session_notes"] = ""
-    sync_input_to_db("session_selected_teeth")
-    sync_input_to_db("session_notes")
 
 # ==============================================================================
-# RULE 2: COMPUTATION VS UI (PRE-EVALUATE PIPELINES BEFORE THE RENDERING PASS)
+# RULE 2: COMPUTATION VS UI (PRE-EVALUATE PIPELINES)
 # ==============================================================================
-patients_db = st.session_state.get("patients_registry", {})
-catalog_db = st.session_state.get("treatment_catalog_db", {})
-history_db = st.session_state.get("tooth_history_ledger", {})
+patients_db, catalog_db, history_db = st.session_state["patients_registry"], st.session_state["treatment_catalog_db"], st.session_state["tooth_history_ledger"]
+active_teeth = st.session_state["session_selected_teeth"]
 
-active_pid = st.session_state.get("session_patient_id", "P0001")
-active_cat = st.session_state.get("session_category", "Adult Dentistry")
-active_treat = st.session_state.get("session_treatment", "")
-active_teeth = st.session_state.get("session_selected_teeth", [])
+unit_price = catalog_db[st.session_state["session_category"]].get(st.session_state["session_treatment"], 0.0)
+gross_cost = unit_price * max(len(active_teeth), 1)
 
-# Financial computations boundary check
-unit_price = catalog_db.get(active_cat, {}).get(active_treat, 0.0)
-teeth_multiplier = len(active_teeth) if len(active_teeth) > 0 else 1
-computed_gross_cost = unit_price * teeth_multiplier
-
-# Formulate display formats
-patient_selectors_map = {k: f"{v['name']} [{k}] - {v['center']}" for k, v in patients_db.items()}
-
-# ==============================================================================
-# RULE 3: HTML PRINT AND MOBILE PDF ENGINE FOR PASSPORTS
-# ==============================================================================
-def compile_passport_report(p_id, meta, full_logs):
-    rows = ""
-    if p_id in full_logs:
-        for tooth, actions in full_logs[p_id].items():
-            for a in actions:
-                rows += f"<tr><td><b>Tooth {tooth}</b></td><td>{a['date']}</td><td>{a['treatment']}</td><td>{a['center']}</td><td>{a['notes']}</td></tr>"
-    if not rows:
-        rows = "<tr><td colspan='5' style='text-align:center; color:#777;'>No matching chart files saved.</td></tr>"
-        
-    return f"""
-    <!DOCTYPE html><html><head><meta charset="utf-8">
-    <style>
-        body {{ font-family: -apple-system, sans-serif; margin: 20px; }}
-        .head {{ display: flex; justify-content: space-between; border-bottom: 2px solid #047857; padding-bottom: 10px; }}
-        table {{ width:100%; border-collapse: collapse; margin-top: 20px; }}
-        th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
-        th {{ background: #f3f4f6; }}
-        .btn {{ background:#047857; color:white; border:none; padding:8px 16px; border-radius:4px; font-weight:bold; cursor:pointer; }}
-        @media print {{ .btn {{ display:none; }} }}
-    </style></head><body>
-    <div class="head">
-        <div><h2>Dental Medical Record Passport</h2><p>Patient: {meta.get('name')} | Base: {meta.get('center')}</p></div>
-        <button class="btn" onclick="window.print()">Print Report / PDF</button>
-    </div>
-    <table><thead><tr><th>Location</th><th>Date</th><th>Treatment Implemented</th><th>Clinic Center Location</th><th>Clinical Session Notes</th></tr></thead>
-    <tbody>{rows}</tbody></table></body></html>
-    """
-
-passport_html = compile_passport_report(active_pid, patients_db.get(active_pid, {}), history_db)
+patient_selectors = {k: f"{v['name']} [{k}]" for k, v in patients_db.items()}
 
 # ==============================================================================
 # UI VISUAL PRESENTATION LAYOUT LAYER
 # ==============================================================================
-st.set_page_config(page_title="Havence Professional Dental Matrix", layout="wide")
-
-# Inject responsive style patches so button rows resemble a mouse dental grid grid canvas mapping
-st.markdown("""
-<style>
-    div.stButton > button { width: 100% !important; padding: 4px 2px !important; font-size: 11px !important; margin: 0px !important; }
-    .tooth-header { text-align: center; font-weight: bold; font-size: 13px; color: #4b5563; margin-top: 8px; margin-bottom: 4px; }
-</style>
-""", unsafe_allow_html=True)
-
-st.title("🦷 Havence Clinical Dental Workspace")
+st.set_page_config(page_title="Havence Dental Diagram Workspace", layout="wide")
+st.title("🦷 Havence Clinical Diagram Workspace")
 st.markdown("---")
 
-tab_sessions, tab_patients, tab_prices = st.tabs([
-    "🩺 Interactive Session Planner",
-    "👥 Patient Admissions Database",
-    "💰 Fee & Treatment Price Editor"
-])
+tab_sessions, tab_adm = st.tabs(["🩺 Diagram Session Planner", "👥 Patient Admissions & Catalog"])
 
 # ------------------------------------------------------------------------------
-# TAB 1: INTERACTIVE WORKSPACE & TARGET MOUSE GRID
+# TAB 1: DIAGRAM SESSION PLANNER
 # ------------------------------------------------------------------------------
 with tab_sessions:
     l_box, r_box = st.columns([2, 3])
-    
     with l_box:
-        st.subheader("Clinical Parameters")
-        st.selectbox("Select Patient Target File", options=list(patient_selectors_map.keys()), format_func=lambda x: patient_selectors_map[x], key="session_patient_id", on_change=sync_input_to_db, args=("session_patient_id",))
-        
-        st.selectbox("Dentistry Classification Group", options=list(catalog_db.keys()), key="session_category", on_change=sync_input_to_db, args=("session_category",))
-        
-        selectable_treatments = list(catalog_db.get(st.session_state.get("session_category"), {}).keys())
-        st.selectbox("Target Care Treatment Protocol", options=selectable_treatments, key="session_treatment", on_change=sync_input_to_db, args=("session_treatment",))
-        
-        st.text_area("Clinical Session Operations Log Entries", key="session_notes", on_change=sync_input_to_db, args=("session_notes",))
+        st.subheader("Session Parameters")
+        st.selectbox("Select Patient", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x], key="session_patient_id", on_change=sync_input_to_db, args=("session_patient_id",))
+        st.selectbox("Category", options=list(catalog_db.keys()), key="session_category", on_change=sync_input_to_db, args=("session_category",))
+        st.selectbox("Treatment", options=list(catalog_db[st.session_state.get("session_category", "Adult Dentistry")].keys()), key="session_treatment", on_change=sync_input_to_db, args=("session_treatment",))
+        st.text_area("Operations Log", key="session_notes", on_change=sync_input_to_db, args=("session_notes",))
         
         st.markdown("### Transaction Matrix")
         m1, m2 = st.columns(2)
         m1.metric("Catalog Base Price", f"${unit_price:,.2f}")
-        m2.metric("Calculated Accumulated Cost", f"${computed_gross_cost:,.2f}")
-        
-        st.button("💾 Commit Operations Plan to History File", on_click=cb_save_session_log, type="primary")
+        m2.metric("Calculated Accumulated Cost", f"${gross_cost:,.2f}")
+        st.button("💾 Commit Operations Plan", on_click=cb_save_session_log, type="primary")
 
     with r_box:
-        st.subheader("Mouse-Driven Graphical Odontogram Chart Layout")
-        st.caption("Click on individual blocks below using your mouse cursor to toggle dental quadrants.")
+        st.subheader("Interactive Odontogram Diagram")
+        st.caption("Tap/Click on any tooth, deciduous cluster, or quadrant label to select them for this treatment session.")
         
-        u_arch_1 = ["18", "17", "16", "15", "14", "13", "12", "11"]
-        u_arch_2 = ["21", "22", "23", "24", "25", "26", "27", "28"]
-        l_arch_1 = ["48", "47", "46", "45", "44", "43", "42", "41"]
-        l_arch_2 = ["31", "32", "33", "34", "35", "36", "37", "38"]
+        # DISPLAY IMAGE AND CATCH CLICKS
+        # Image is displayed at original resolution; coordinates must match image mapping definition
+        if not os.path.exists(TOOTH_DIAGRAM_PATH):
+            st.error(f"Missing Image: Place your dental diagram named '{TOOTH_DIAGRAM_PATH}' in the app directory.")
+        else:
+            value = streamlit_image_coordinates(TOOTH_DIAGRAM_PATH, use_column_width=False, key="click_map")
+            
+            # HANDLE CLICKS (Find zone matching click coordinates)
+            if value is not None:
+                x, y = value['x'], value['y']
+                for z in CLICK_ZONES:
+                    if z[0] <= x <= z[2] and z[1] <= y <= z[3]:
+                        cb_toggle_tooth_label(z[4])
+                        # Force rerun to immediately show results on the left column (Streamlit specific need)
+                        st.experimental_rerun()
+                # (Else click was outside any mapped tooth zone)
 
-        st.markdown("<div class='tooth-header'>Upper Maxillary Jaw Arch Quadrants</div>", unsafe_allow_html=True)
-        cols_u1 = st.columns(8)
-        for idx, t in enumerate(u_arch_1):
-            lbl = f"🟢\n{t}" if t in active_teeth else f"⬜\n{t}"
-            cols_u1[idx].button(lbl, key=f"m_u1_{t}", on_click=cb_toggle_tooth_cell, args=(t,))
-            
-        cols_u2 = st.columns(8)
-        for idx, t in enumerate(u_arch_2):
-            lbl = f"🟢\n{t}" if t in active_teeth else f"⬜\n{t}"
-            cols_u2[idx].button(lbl, key=f"m_u2_{t}", on_click=cb_toggle_tooth_cell, args=(t,))
-            
-        st.markdown("<div class='tooth-header'>Lower Mandibular Jaw Arch Quadrants</div>", unsafe_allow_html=True)
-        cols_l1 = st.columns(8)
-        for idx, t in enumerate(l_arch_1):
-            lbl = f"🟢\n{t}" if t in active_teeth else f"⬜\n{t}"
-            cols_l1[idx].button(lbl, key=f"m_l1_{t}", on_click=cb_toggle_tooth_cell, args=(t,))
-            
-        cols_l2 = st.columns(8)
-        for idx, t in enumerate(l_arch_2):
-            lbl = f"🟢\n{t}" if t in active_teeth else f"⬜\n{t}"
-            cols_l2[idx].button(lbl, key=f"m_l2_{t}", on_click=cb_toggle_tooth_cell, args=(t,))
+            # Inform user about their selections
+            if active_teeth:
+                st.info(f"Active Selection Matrix: **{', '.join(sorted(active_teeth))}**")
+            else:
+                st.warning("Click on the diagram to select teeth/regions.")
 
 # ------------------------------------------------------------------------------
-# TAB 2: PATIENT ADMISSIONS & CHRONOLOGICAL HISTORY MATRIX
+# TAB 2: PATIENT ADMISSIONS & CATALOG MANAGEMENT
 # ------------------------------------------------------------------------------
-with tab_patients:
-    st.subheader("Manage Medical Profiles")
-    
-    col_adm_1, col_adm_2 = st.columns([1, 2])
-    
+with tab_adm:
+    col_adm_1, col_adm_2 = st.columns(2)
     with col_adm_1:
         st.info("#### ➕ Patient Registry Intake Form")
-        st.text_input("Patient Full Name", key="new_pat_name", on_change=sync_input_to_db, args=("new_pat_name",))
-        st.text_input("Active Mobile Phone Number", key="new_pat_phone", on_change=sync_input_to_db, args=("new_pat_phone",))
-        st.date_input("Patient Birth Date", key="new_pat_birth", on_change=sync_input_to_db, args=("new_pat_birth",))
-        st.selectbox("Primary Medical Center Location Facility", options=CENTERS, key="new_pat_center", on_change=sync_input_to_db, args=("new_pat_center",))
-        st.button("🚀 Complete Registration Intake Run", on_click=cb_add_new_patient, use_container_width=True)
-        
-        st.markdown("---")
-        st.download_button("📱 Export Complete File Passport", data=passport_html, file_name=f"passport_{active_pid}.html", mime="text/html", use_container_width=True)
-
+        st.text_input("Full Name", key="new_pat_name")
+        st.text_input("Mobile Phone", key="new_pat_phone")
+        st.date_input("Birth Date", key="new_pat_birth")
+        st.selectbox("Facility Base", options=CENTERS, key="new_pat_center")
+        st.button("🚀 Register Intake", on_click=cb_add_new_patient, use_container_width=True)
     with col_adm_2:
-        st.write("#### 🔍 Timeline Audit Logs Per Tooth Row")
-        all_ordered_teeth = u_arch_1 + u_arch_2 + l_arch_1 + l_arch_2
-        target_view_tooth = st.selectbox("Isolate Tooth Target Location Code for Inspection", options=all_ordered_teeth, index=2)
-        
-        active_patient_logs = history_db.get(active_pid, {}).get(target_view_tooth, [])
-        
-        if active_patient_logs:
-            df_display = pd.DataFrame(active_patient_logs)[["date", "treatment", "center", "notes"]]
-            df_display.columns = ["Date Performed", "Surgical Action Plan Implemented", "Clinic Core Center Base", "Notes Logged"]
-            st.table(df_display)
-        else:
-            st.warning(f"No previous clinical records or treatment sessions registered for Tooth {target_view_tooth} on this file ID.")
-
-# ------------------------------------------------------------------------------
-# TAB 3: MASTER PRICE CATALOG REGISTRY EDITOR
-# ------------------------------------------------------------------------------
-with tab_prices:
-    st.subheader("Master Dentistry Rate Matrix Configurations")
-    
-    p_ed_col1, p_ed_col2 = st.columns([1, 2])
-    
-    with p_ed_col1:
-        st.info("#### ✏️ Tariff Management Panel")
-        st.selectbox("Select Classification Sector", options=list(catalog_db.keys()), key="edit_cat_select", on_change=cb_sync_editor_fields)
-        
-        sub_treats = list(catalog_db.get(st.session_state.get("edit_cat_select"), {}).keys())
-        st.selectbox("Target Operation Protocol", options=sub_treats, key="edit_treat_select", on_change=cb_sync_editor_fields)
-        
-        st.number_input("Standard Fee Base Rate Value ($)", step=10.0, key="edit_price_val", on_change=sync_input_to_db, args=("edit_price_val",))
-        st.button("💾 Apply Updated Price Configuration", on_click=cb_update_treatment_price, use_container_width=True, type="primary")
-        
-    with p_ed_col2:
-        st.write("#### 📋 Real-Time Core Catalog Fee Schedule Rows")
-        flat_records = []
-        for category, item_map in catalog_db.items():
-            for item, rate in item_map.items():
-                flat_records.append({"Classification Category": category, "Medical Treatment Specification": item, "Configured Base Fee Schedule": f"${rate:,.2f}"})
-        st.dataframe(pd.DataFrame(flat_records), use_container_width=True, hide_index=True)
+        st.info("#### ✏️ Catalog Tariff Editor")
+        st.selectbox("Category Sector", options=list(catalog_db.keys()), key="edit_cat_select")
+        st.selectbox("Treatment Protocol", options=list(catalog_db.get(st.session_state.get("edit_cat_select", "Adult Dentistry"), {}).keys()), key="edit_treat_select")
+        st.number_input("Standard Fee Schedule ($)", step=10.0, key="edit_price_val")
+        st.button("💾 Apply Updated Price", on_click=cb_update_treatment_price, use_container_width=True, type="primary")
