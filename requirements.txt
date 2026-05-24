@@ -1,0 +1,3 @@
+Plaintext
+streamlit-image-coordinates
+pandas
