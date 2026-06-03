@@ -80,16 +80,16 @@ patients_db = get_state_val("patients_registry", {
 })
 
 cases_db = get_state_val("patient_cases_tracker", {
-    "P0001": [{"case_id": "C001", "tooth": "16", "treatment": "Composite Filling", "type": "New Session (New Query)", "status": "Finished", "est_sessions": 1}],
+    "P0001": [{"case_id": "C001", "tooth": "UR6", "treatment": "Composite Filling", "type": "New Session (New Query)", "status": "Finished", "est_sessions": 1}],
     "P0002": []
 })
 
 history_db = get_state_val("tooth_history_ledger", {
-    "P0001": {"16": [{"date": "2026-02-15", "treatment": "[New Session] Composite Filling", "center": "Istanbul Tower", "notes": "Initial setup completed.", "status": "Finished"}]}
+    "P0001": {"UR6": [{"date": "2026-02-15", "treatment": "[New Session] Composite Filling", "center": "Istanbul Tower", "notes": "Initial setup completed.", "status": "Finished"}]}
 })
 
 finance_db = get_state_val("finance_ledger", {
-    "P0001": [{"date": "2026-02-15", "procedure": "Composite Filling (Tooth: 16)", "total_due": 2500.0, "amount_paid": 2500.0, "method": "Cash", "balance": 0.0}],
+    "P0001": [{"date": "2026-02-15", "procedure": "Composite Filling (Tooth: UR6)", "gross_calculated": 2500.0, "discount_applied": 0.0, "total_due": 2500.0, "amount_paid": 2500.0, "method": "Cash", "balance": 0.0}],
     "P0002": []
 })
 
@@ -243,21 +243,22 @@ def cb_save_session_log():
     st.success("Session saved successfully inside transaction ledger data.")
 
 # ==============================================================================
-# 4. TEETH NOTATION DATA STRUCTURES (ADULT VS. CHILDREN FDI SYSTEM)
+# 4. PALMER NOTATION SYSTEM CONFIGURATION
 # ==============================================================================
-# Adult Dentition Structure (Permanent Teeth)
-adult_u1 = ["18", "17", "16", "15", "14", "13", "12", "11"]  
-adult_u2 = ["21", "22", "23", "24", "25", "26", "27", "28"]  
-adult_l2 = ["31", "32", "33", "34", "35", "36", "37", "38"]  
-adult_l1 = ["48", "47", "46", "45", "44", "43", "42", "41"]  
-all_adult_teeth = adult_u1 + adult_u2 + adult_l2 + adult_l1
+# Adult (Palmer Numbers 1-8)
+adult_quad_ur = [f"UR{i}" for i in range(8, 0, -1)]  
+adult_quad_ul = [f"UL{i}" for i in range(1, 9)]       
+adult_quad_lr = [f"LR{i}" for i in range(8, 0, -1)]  
+adult_quad_ll = [f"LL{i}" for i in range(1, 9)]       
+all_adult_palmer = adult_quad_ur + adult_quad_ul + adult_quad_lr + adult_quad_ll
 
-# Children Dentition Structure (Primary Teeth)
-child_u1 = ["55", "54", "53", "52", "51"]  
-child_u2 = ["61", "62", "63", "64", "65"]  
-child_l2 = ["71", "72", "73", "74", "75"]  
-child_l1 = ["85", "84", "83", "82", "81"]  
-all_child_teeth = child_u1 + child_u2 + child_l2 + child_l1
+# Children (Palmer Letters A-E)
+child_labels = ["E", "D", "C", "B", "A"]
+child_quad_ur = [f"UR{ch}" for ch in child_labels]      
+child_quad_ul = [f"UL{ch}" for ch in reversed(child_labels)] 
+child_quad_lr = [f"LR{ch}" for ch in child_labels]      
+child_quad_ll = [f"LL{ch}" for ch in reversed(child_labels)] 
+all_child_palmer = child_quad_ur + child_quad_ul + child_quad_lr + child_quad_ll
 
 patient_selectors = {k: f"{v['name']} [{k}]" for k, v in st.session_state["patients_registry"].items()}
 
@@ -317,42 +318,43 @@ if page == "🩺 Active Session Desk":
     st.selectbox("Procedure Operational Selection Line Plan", options=available_procedures, key="session_treatment")
     
     st.markdown("---")
-    st.subheader("📱 Mobile Touch Tooth Selection Grid System")
+    st.subheader("📱 Mobile Touch Palmer Mapping Grid System")
     
-    # Switch variables dynamically based on Category Group Selection
     if active_cat == "Children Dentistry":
-        q_u1, q_u2, q_l1, q_l2 = child_u1, child_u2, child_l1, child_l2
-        header_prefix = "Primary"
+        q_ur, q_ul, q_lr, q_ll = child_quad_ur, child_quad_ul, child_quad_lr, child_quad_ll
+        system_label = "Palmer Alphabetical (A-E)"
     else:
-        q_u1, q_u2, q_l1, q_l2 = adult_u1, adult_u2, adult_l1, adult_l2
-        header_prefix = "Permanent"
+        q_ur, q_ul, q_lr, q_ll = adult_quad_ur, adult_quad_ul, adult_quad_lr, adult_quad_ll
+        system_label = "Palmer Numeric (1-8)"
+        
+    st.caption(f"Active Dentition Architecture Style: **{system_label}**")
     
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
     
     with row1_col1:
-        st.markdown(f"<div class='mobile-header'>{header_prefix} Upper Right ({q_u1[0]}-{q_u1[-1]})</div>", unsafe_allow_html=True)
-        for t in q_u1:
+        st.markdown("<div class='mobile-header'>Upper Right Quadrant ┘</div>", unsafe_allow_html=True)
+        for t in q_ur:
             is_sel = t in active_teeth
-            st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_u1_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
+            st.button(f"{'⭐' if is_sel else '🦷'} {t}", key=f"mob_palmer_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
             
     with row1_col2:
-        st.markdown(f"<div class='mobile-header'>{header_prefix} Upper Left ({q_u2[0]}-{q_u2[-1]})</div>", unsafe_allow_html=True)
-        for t in q_u2:
+        st.markdown("<div class='mobile-header'>└ Upper Left Quadrant</div>", unsafe_allow_html=True)
+        for t in q_ul:
             is_sel = t in active_teeth
-            st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_u2_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
+            st.button(f"{'⭐' if is_sel else '🦷'} {t}", key=f"mob_palmer_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
 
     with row2_col1:
-        st.markdown(f"<div class='mobile-header'>{header_prefix} Lower Right ({q_l1[0]}-{q_l1[-1]})</div>", unsafe_allow_html=True)
-        for t in q_l1:
+        st.markdown("<div class='mobile-header'>Lower Right Quadrant ┐</div>", unsafe_allow_html=True)
+        for t in q_lr:
             is_sel = t in active_teeth
-            st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_l1_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
+            st.button(f"{'⭐' if is_sel else '🦷'} {t}", key=f"mob_palmer_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
 
     with row2_col2:
-        st.markdown(f"<div class='mobile-header'>{header_prefix} Lower Left ({q_l2[0]}-{q_l2[-1]})</div>", unsafe_allow_html=True)
-        for t in q_l2:
+        st.markdown("<div class='mobile-header'>┌ Lower Left Quadrant</div>", unsafe_allow_html=True)
+        for t in q_ll:
             is_sel = t in active_teeth
-            st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_l2_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
+            st.button(f"{'⭐' if is_sel else '🦷'} {t}", key=f"mob_palmer_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
 
     st.markdown("---")
     st.text_area("Case Notes Data Lines", key="session_notes")
@@ -489,7 +491,7 @@ elif page == "📋 Treatment Price Database Panel":
     st.dataframe(pd.DataFrame(flat_records), use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------------------------------
-# PAGE 4: PATIENT HISTORY LOOKUP
+# PAGE 4: PATIENT HISTORY LOOKUP & LIVE SESSION DATA EDITING ENGINE
 # ------------------------------------------------------------------------------
 elif page == "🔍 Patient History Lookup":
     st.subheader("🔍 Patient Comprehensive File Tracking Room")
@@ -498,14 +500,14 @@ elif page == "🔍 Patient History Lookup":
     
     st.markdown(f"**Name:** {p_profile['name']} | **Contact Line:** {p_profile['phone']} | **Default Registered Center:** {p_profile['center']}")
     
-    h_tab1, h_tab2, h_tab3 = st.tabs(["📊 Case Tracking Lifecycles", "💰 Account Transaction Statement Logs", "🦷 Isolated Tooth History Charts"])
+    h_tab1, h_tab2, h_tab3 = st.tabs(["📊 Case Tracking Lifecycles", "💰 Account Transaction Statement Logs & Editing", "🦷 Isolated Tooth History Charts"])
     
     with h_tab1:
         pt_cases = st.session_state.get("patient_cases_tracker", {}).get(lookup_pid, [])
         if pt_cases:
             st.dataframe(pd.DataFrame(pt_cases), use_container_width=True, hide_index=True)
         else:
-            st.info("No recorded running or historical treatment lines verified for this profile.")
+            st.info("No recorded running or historical sequential treatment lines verified for this patient profile.")
             
     with h_tab2:
         p_tx_history = st.session_state["finance_ledger"].get(lookup_pid, [])
@@ -513,11 +515,52 @@ elif page == "🔍 Patient History Lookup":
             df_fin = pd.DataFrame(p_tx_history)
             st.metric("Total Net Balance Outstanding Debt (TL ₺)", f"{df_fin['balance'].sum():,.2f} TL")
             st.dataframe(df_fin, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            st.markdown("#### ✏️ Live Session Data Revision Desk")
+            
+            # Select specific log index to fix errors
+            tx_labels = [f"Idx {idx} | {item['date']} - {item['procedure'][:40]}..." for idx, item in enumerate(p_tx_history)]
+            selected_tx_idx = st.selectbox("Select Exact Transaction Entry Line to Edit", options=range(len(p_tx_history)), format_func=lambda x: tx_labels[x])
+            
+            target_tx = p_tx_history[selected_tx_idx]
+            
+            # Generates dynamic modification panel
+            edit_col1, edit_col2, edit_col3 = st.columns(3)
+            with edit_col1:
+                updated_procedure_text = st.text_input("Edit Logged Procedure Description", value=target_tx.get("procedure", ""))
+                updated_gross = st.number_input("Corrected Gross Total (TL)", min_value=0.0, value=float(target_tx.get("gross_calculated", target_tx.get("total_due", 0.0))))
+            with edit_col2:
+                updated_discount = st.number_input("Corrected Discount (TL)", min_value=0.0, value=float(target_tx.get("discount_applied", 0.0)))
+                updated_paid = st.number_input("Corrected Collected Cash Amount (TL)", min_value=0.0, value=float(target_tx.get("amount_paid", 0.0)))
+            with edit_col3:
+                updated_method = st.selectbox("Corrected Payment Gateway", options=PAYMENT_METHODS, index=PAYMENT_METHODS.index(target_tx["method"]) if target_tx["method"] in PAYMENT_METHODS else 0)
+                
+            if st.button("💾 Apply Session Data Corrections", type="primary"):
+                # Complete execution recalcs
+                new_total_due = max(0.0, updated_gross - updated_discount)
+                new_balance = new_total_due - updated_paid
+                
+                # Write back into data indexes
+                p_tx_history[selected_tx_idx] = {
+                    "date": target_tx["date"],
+                    "procedure": updated_procedure_text,
+                    "gross_calculated": updated_gross,
+                    "discount_applied": updated_discount,
+                    "total_due": new_total_due,
+                    "amount_paid": updated_paid,
+                    "method": updated_method if updated_paid > 0 else "N/A",
+                    "balance": new_balance
+                }
+                st.session_state["finance_ledger"][lookup_pid] = p_tx_history
+                sync_input_to_db("finance_ledger")
+                st.success("Session ledger log updated successfully!")
+                st.rerun()
         else:
             st.info("Financial account ledgers contain zero invoicing movements.")
             
     with h_tab3:
-        all_possible_teeth = all_adult_teeth + all_child_teeth
+        all_possible_teeth = all_adult_palmer + all_child_palmer
         selected_tooth = st.selectbox("Choose Target Tooth Space Profile to Track", options=all_possible_teeth)
         records = st.session_state["tooth_history_ledger"].get(lookup_pid, {}).get(selected_tooth, [])
         if records:
@@ -526,29 +569,55 @@ elif page == "🔍 Patient History Lookup":
             st.warning(f"No clinical procedure history details logged on Tooth {selected_tooth}.")
 
 # ------------------------------------------------------------------------------
-# PAGE 5: PATIENT REGISTRATION MANAGER (OPEN YEAR VIEWPORT CONFIGURATION)
+# PAGE 5: PATIENT REGISTRATION & PROFILE DATA MASTER MANAGER
 # ------------------------------------------------------------------------------
 elif page == "👥 Patient Registration Manager":
-    st.subheader("👥 Patient Master Profile Intake Desk")
+    st.subheader("👥 Patient Master Profile Intake & Modification Desk")
     
-    c_adm1, c_adm2 = st.columns([1, 2])
-    with c_adm1:
-        st.text_input("Full Patient Registration Name", key="new_pat_name")
-        st.text_input("Mobile Contact Phone Line", key="new_pat_phone")
+    reg_tab1, reg_tab2 = st.tabs(["➕ Introduce New Patient Profile", "✏️ Edit Existing Patient Registry Files"])
+    
+    with reg_tab1:
+        c_adm1, c_adm2 = st.columns([1, 2])
+        with c_adm1:
+            st.text_input("Full Patient Registration Name", key="new_pat_name")
+            st.text_input("Mobile Contact Phone Line", key="new_pat_phone")
+            st.date_input("Date of Birth", min_value=date(1920, 1, 1), max_value=date.today(), key="new_pat_birth")
+            st.selectbox("Default Assigned Medical Center Site", options=CENTERS, key="new_pat_center")
+            st.button("🚀 File Complete Patient Profile Intake", on_click=cb_add_new_patient, type="primary")
+            
+        with c_adm2:
+            raw_patients = []
+            for pid, d in st.session_state["patients_registry"].items():
+                raw_patients.append({"ID Profile Code": pid, "Full Name": d["name"], "Contact Line Mobile": d["phone"], "Clinic Facility Location": d["center"]})
+            st.dataframe(pd.DataFrame(raw_patients), use_container_width=True, hide_index=True)
+
+    with reg_tab2:
+        st.markdown("#### Modify Configured Patient Registry Information Data Fields")
+        edit_pid = st.selectbox("Select Patient Target File to Edit", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x], key="pat_edit_selector")
         
-        # Open year navigation layout window configuration bounds
-        st.date_input(
-            "Date of Birth", 
-            min_value=date(1920, 1, 1), 
-            max_value=date.today(), 
-            key="new_pat_birth"
-        )
-        
-        st.selectbox("Default Assigned Medical Center Site", options=CENTERS, key="new_pat_center")
-        st.button("🚀 File Complete Patient Profile Intake", on_click=cb_add_new_patient, type="primary")
-        
-    with c_adm2:
-        raw_patients = []
-        for pid, d in st.session_state["patients_registry"].items():
-            raw_patients.append({"ID Profile Code": pid, "Full Name": d["name"], "Contact Line Mobile": d["phone"], "Clinic Facility Location": d["center"]})
-        st.dataframe(pd.DataFrame(raw_patients), use_container_width=True, hide_index=True)
+        if edit_pid:
+            current_profile = st.session_state["patients_registry"][edit_pid]
+            
+            try:
+                curr_bdate = datetime.fromisoformat(current_profile["birth_date"]).date()
+            except Exception:
+                curr_bdate = date(2000, 1, 1)
+                
+            edit_name = st.text_input("Modify Full Name", value=current_profile["name"])
+            edit_phone = st.text_input("Modify Mobile Contact Phone Line", value=current_profile["phone"])
+            edit_bdate = st.date_input("Modify Date of Birth", value=curr_bdate, min_value=date(1920, 1, 1), max_value=date.today())
+            
+            curr_center_idx = CENTERS.index(current_profile["center"]) if current_profile["center"] in CENTERS else 0
+            edit_center = st.selectbox("Modify Assigned Medical Center Site", options=CENTERS, index=curr_center_idx)
+            
+            if st.button("💾 Apply Profile Update Changes", type="primary"):
+                st.session_state["patients_registry"][edit_pid] = {
+                    "name": edit_name.strip(),
+                    "phone": edit_phone.strip(),
+                    "center": edit_center,
+                    "age": date.today().year - edit_bdate.year,
+                    "birth_date": edit_bdate.isoformat()
+                }
+                sync_input_to_db("patients_registry")
+                st.success(f"Profile {edit_pid} successfully overwritten inside registry file matrix.")
+                st.rerun()
