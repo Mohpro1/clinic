@@ -53,7 +53,7 @@ def sync_input_to_db(key):
         save_db(db_data)
 
 # ==============================================================================
-# 2. DATABASE SEEDING & INITIALIZATION (TL NATIVE DEFAULTS)
+# 2. DATABASE SEEDING & INITIALIZATION
 # ==============================================================================
 CENTERS = ["Istanbul Tower", "Elsifa Medical Center"]
 PAYMENT_METHODS = ["Cash", "Bank Transfer", "Credit Card"]
@@ -111,7 +111,7 @@ get_state_val("session_high_priority", False)
 
 get_state_val("new_pat_name", "")
 get_state_val("new_pat_phone", "")
-get_state_val("new_pat_birth", date(2000, 1, 1))
+get_state_val("new_pat_birth", date.today())
 get_state_val("new_pat_center", CENTERS[0])
 
 # Catalog management fields
@@ -188,7 +188,6 @@ def cb_save_session_log():
     unit_rate = st.session_state["treatment_catalog_db"][cat].get(treat, 0.0)
     gross_cost = unit_rate * len(teeth)
     
-    # Mathematical integration rules with dynamic session deductions
     net_cost = max(0.0, gross_cost - discount)
     remaining_balance = net_cost - paid
     
@@ -244,13 +243,21 @@ def cb_save_session_log():
     st.success("Session saved successfully inside transaction ledger data.")
 
 # ==============================================================================
-# 4. FIXED SYSTEM PROPERTIES DEFINITIONS
+# 4. TEETH NOTATION DATA STRUCTURES (ADULT VS. CHILDREN FDI SYSTEM)
 # ==============================================================================
-quad_u1 = ["18", "17", "16", "15", "14", "13", "12", "11"]  
-quad_u2 = ["21", "22", "23", "24", "25", "26", "27", "28"]  
-quad_l2 = ["31", "32", "33", "34", "35", "36", "37", "38"]  
-quad_l1 = ["48", "47", "46", "45", "44", "43", "42", "41"]  
-all_teeth_options = quad_u1 + quad_u2 + quad_l2 + quad_l1
+# Adult Dentition Structure (Permanent Teeth)
+adult_u1 = ["18", "17", "16", "15", "14", "13", "12", "11"]  
+adult_u2 = ["21", "22", "23", "24", "25", "26", "27", "28"]  
+adult_l2 = ["31", "32", "33", "34", "35", "36", "37", "38"]  
+adult_l1 = ["48", "47", "46", "45", "44", "43", "42", "41"]  
+all_adult_teeth = adult_u1 + adult_u2 + adult_l2 + adult_l1
+
+# Children Dentition Structure (Primary Teeth)
+child_u1 = ["55", "54", "53", "52", "51"]  
+child_u2 = ["61", "62", "63", "64", "65"]  
+child_l2 = ["71", "72", "73", "74", "75"]  
+child_l1 = ["85", "84", "83", "82", "81"]  
+all_child_teeth = child_u1 + child_u2 + child_l2 + child_l1
 
 patient_selectors = {k: f"{v['name']} [{k}]" for k, v in st.session_state["patients_registry"].items()}
 
@@ -279,7 +286,7 @@ st.title("Havence Dental Management System")
 st.markdown("---")
 
 # ------------------------------------------------------------------------------
-# PAGE 1: ACTIVE SESSION DESK (WITH CURRENCY & DISCOUNT MECHANICS)
+# PAGE 1: ACTIVE SESSION DESK
 # ------------------------------------------------------------------------------
 if page == "🩺 Active Session Desk":
     st.subheader("🩺 Clinical Treatment Intake & Discount Engine")
@@ -312,30 +319,38 @@ if page == "🩺 Active Session Desk":
     st.markdown("---")
     st.subheader("📱 Mobile Touch Tooth Selection Grid System")
     
+    # Switch variables dynamically based on Category Group Selection
+    if active_cat == "Children Dentistry":
+        q_u1, q_u2, q_l1, q_l2 = child_u1, child_u2, child_l1, child_l2
+        header_prefix = "Primary"
+    else:
+        q_u1, q_u2, q_l1, q_l2 = adult_u1, adult_u2, adult_l1, adult_l2
+        header_prefix = "Permanent"
+    
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
     
     with row1_col1:
-        st.markdown("<div class='mobile-header'>Upper Right (18-11)</div>", unsafe_allow_html=True)
-        for t in quad_u1:
+        st.markdown(f"<div class='mobile-header'>{header_prefix} Upper Right ({q_u1[0]}-{q_u1[-1]})</div>", unsafe_allow_html=True)
+        for t in q_u1:
             is_sel = t in active_teeth
             st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_u1_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
             
     with row1_col2:
-        st.markdown("<div class='mobile-header'>Upper Left (21-28)</div>", unsafe_allow_html=True)
-        for t in quad_u2:
+        st.markdown(f"<div class='mobile-header'>{header_prefix} Upper Left ({q_u2[0]}-{q_u2[-1]})</div>", unsafe_allow_html=True)
+        for t in q_u2:
             is_sel = t in active_teeth
             st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_u2_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
 
     with row2_col1:
-        st.markdown("<div class='mobile-header'>Lower Right (48-41)</div>", unsafe_allow_html=True)
-        for t in quad_l1:
+        st.markdown(f"<div class='mobile-header'>{header_prefix} Lower Right ({q_l1[0]}-{q_l1[-1]})</div>", unsafe_allow_html=True)
+        for t in q_l1:
             is_sel = t in active_teeth
             st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_l1_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
 
     with row2_col2:
-        st.markdown("<div class='mobile-header'>Lower Left (31-38)</div>", unsafe_allow_html=True)
-        for t in quad_l2:
+        st.markdown(f"<div class='mobile-header'>{header_prefix} Lower Left ({q_l2[0]}-{q_l2[-1]})</div>", unsafe_allow_html=True)
+        for t in q_l2:
             is_sel = t in active_teeth
             st.button(f"{'⭐' if is_sel else '🦷'} Tooth {t}", key=f"mob_l2_{t}", on_click=cb_toggle_grid_tooth, args=(t,), type="primary" if is_sel else "secondary")
 
@@ -347,7 +362,6 @@ if page == "🩺 Active Session Desk":
     calc1, calc2, calc3 = st.columns(3)
     calc1.metric("Gross Starting Sum Cost", f"{gross_cost:,.2f} TL")
     
-    # Inline Discount Input Logic
     with calc2:
         discount_val = st.number_input("Apply Session Discount Amount (TL ₺)", min_value=0.0, step=50.0, key="session_discount_input")
     
@@ -420,7 +434,7 @@ elif page == "📅 Shift Scheduler & Booking Desk":
             st.info("Calendar matrix tracking records are completely clear.")
 
 # ------------------------------------------------------------------------------
-# PAGE 3: TREATMENT PRICE DATABASE PANEL (REACTIVATED & EXPANDED AS REQUESTED)
+# PAGE 3: TREATMENT PRICE DATABASE PANEL
 # ------------------------------------------------------------------------------
 elif page == "📋 Treatment Price Database Panel":
     st.subheader("📋 Core Treatment Matrix & Pricing Fee Tariffs (TL ₺)")
@@ -491,7 +505,7 @@ elif page == "🔍 Patient History Lookup":
         if pt_cases:
             st.dataframe(pd.DataFrame(pt_cases), use_container_width=True, hide_index=True)
         else:
-            st.info("No recorded running or historical medical sequential treatment lines verified for this patient profile.")
+            st.info("No recorded running or historical treatment lines verified for this profile.")
             
     with h_tab2:
         p_tx_history = st.session_state["finance_ledger"].get(lookup_pid, [])
@@ -503,7 +517,8 @@ elif page == "🔍 Patient History Lookup":
             st.info("Financial account ledgers contain zero invoicing movements.")
             
     with h_tab3:
-        selected_tooth = st.selectbox("Choose Target Tooth Space Profile to Track", options=all_teeth_options)
+        all_possible_teeth = all_adult_teeth + all_child_teeth
+        selected_tooth = st.selectbox("Choose Target Tooth Space Profile to Track", options=all_possible_teeth)
         records = st.session_state["tooth_history_ledger"].get(lookup_pid, {}).get(selected_tooth, [])
         if records:
             st.table(pd.DataFrame(records))
@@ -511,7 +526,7 @@ elif page == "🔍 Patient History Lookup":
             st.warning(f"No clinical procedure history details logged on Tooth {selected_tooth}.")
 
 # ------------------------------------------------------------------------------
-# PAGE 5: PATIENT REGISTRATION MANAGER
+# PAGE 5: PATIENT REGISTRATION MANAGER (OPEN YEAR VIEWPORT CONFIGURATION)
 # ------------------------------------------------------------------------------
 elif page == "👥 Patient Registration Manager":
     st.subheader("👥 Patient Master Profile Intake Desk")
@@ -520,7 +535,15 @@ elif page == "👥 Patient Registration Manager":
     with c_adm1:
         st.text_input("Full Patient Registration Name", key="new_pat_name")
         st.text_input("Mobile Contact Phone Line", key="new_pat_phone")
-        st.date_input("Date of Birth", key="new_pat_birth")
+        
+        # Open year navigation layout window configuration bounds
+        st.date_input(
+            "Date of Birth", 
+            min_value=date(1920, 1, 1), 
+            max_value=date.today(), 
+            key="new_pat_birth"
+        )
+        
         st.selectbox("Default Assigned Medical Center Site", options=CENTERS, key="new_pat_center")
         st.button("🚀 File Complete Patient Profile Intake", on_click=cb_add_new_patient, type="primary")
         
