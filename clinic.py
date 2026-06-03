@@ -101,6 +101,7 @@ get_state_val("session_category", "Adult Dentistry")
 get_state_val("session_treatment", "Composite Filling")
 get_state_val("session_selected_teeth", [])
 get_state_val("session_notes", "")
+get_state_val("session_log_date", date.today())
 get_state_val("session_amount_paid", 0.0)
 get_state_val("session_discount_input", 0.0)
 get_state_val("session_payment_method", "Cash")
@@ -173,6 +174,7 @@ def cb_save_session_log():
     cat = st.session_state["session_category"]
     treat = st.session_state["session_treatment"]
     teeth = st.session_state["session_selected_teeth"]
+    s_date = st.session_state["session_log_date"]
     paid = float(st.session_state["session_amount_paid"])
     discount = float(st.session_state["session_discount_input"])
     method = st.session_state["session_payment_method"]
@@ -215,7 +217,7 @@ def cb_save_session_log():
     for t in teeth:
         if t not in history[pid]: history[pid][t] = []
         history[pid][t].append({
-            "date": date.today().isoformat(), "treatment": f"[{nature}] {treat}", 
+            "date": s_date.isoformat(), "treatment": f"[{nature}] {treat}", 
             "center": center, "notes": st.session_state["session_notes"], "status": work_status
         })
     st.session_state["tooth_history_ledger"] = history
@@ -224,7 +226,7 @@ def cb_save_session_log():
     finances = st.session_state.get("finance_ledger", {})
     if pid not in finances: finances[pid] = []
     finances[pid].append({
-        "date": date.today().isoformat(),
+        "date": s_date.isoformat(),
         "procedure": f"[{nature}] {treat} (Teeth: {', '.join(sorted(teeth))}) - Status: {work_status}",
         "gross_calculated": gross_cost,
         "discount_applied": discount,
@@ -240,6 +242,7 @@ def cb_save_session_log():
     st.session_state["session_notes"] = ""
     st.session_state["session_amount_paid"] = 0.0
     st.session_state["session_discount_input"] = 0.0
+    st.session_state["session_log_date"] = date.today()
     st.success("Session saved successfully inside transaction ledger data.")
 
 # ==============================================================================
@@ -370,17 +373,18 @@ if page == "🩺 Active Session Desk":
     final_net_payable = max(0.0, gross_cost - discount_val)
     calc3.metric("Net Invoiced Payable Amount", f"{final_net_payable:,.2f} TL", delta=f"-{discount_val:,.2f} TL" if discount_val > 0 else None, delta_color="inverse")
     
-    pay_col1, pay_col2 = st.columns(2)
-    pay_col1.number_input("Collected Amount Settled Right Now (TL ₺)", min_value=0.0, max_value=max(final_net_payable, 500000.0), step=100.0, key="session_amount_paid")
-    pay_col2.selectbox("Payment Gateway Type", options=PAYMENT_METHODS, key="session_payment_method")
+    pay_col1, pay_col2, pay_col3 = st.columns(3)
+    pay_col1.date_input("Session Operational Date", key="session_log_date")
+    pay_col2.number_input("Collected Amount Settled Right Now (TL ₺)", min_value=0.0, max_value=max(final_net_payable, 500000.0), step=100.0, key="session_amount_paid")
+    pay_col3.selectbox("Payment Gateway Type", options=PAYMENT_METHODS, key="session_payment_method")
     
     st.button("💾 Commit & File Complete Session Transaction", on_click=cb_save_session_log, type="primary")
 
 # ------------------------------------------------------------------------------
-# PAGE 2: SHIFT SCHEDULER & BOOKING DESK
+# PAGE 2: SHIFT SCHEDULER & BOOKING DESK (ALL WEEK DESK)
 # ------------------------------------------------------------------------------
 elif page == "📅 Shift Scheduler & Booking Desk":
-    st.subheader("📅 Monday & Thursday Shift Planner Matrix")
+    st.subheader("📅 Live Weekly Shift Planner Matrix")
     
     col_sch1, col_sch2 = st.columns([1, 1])
     with col_sch1:
@@ -389,12 +393,8 @@ elif page == "📅 Shift Scheduler & Booking Desk":
         end_hour = st.number_input("End Hour Window (24h)", min_value=start_hour+1, max_value=24, value=17)
         target_date = st.date_input("Select Plan Date Target", value=date.today())
         
-        if target_date.weekday() not in [0, 3]:
-            st.error("❌ Invalid Shift Selection! Please book onto a Monday or Thursday calendar path.")
-            is_valid_day = False
-        else:
-            st.success(f"✅ Approved Working Shift: {target_date.strftime('%A')}")
-            is_valid_day = True
+        # All days are fully accessible
+        st.success(f"✅ Approved Working Shift Calendar Day: {target_date.strftime('%A')}")
             
         time_slots = [f"{h:02d}:00 - {h+1:02d}:00" for h in range(start_hour, end_hour)]
         selected_slot = st.selectbox("1-Hour Scheduled Slots", options=time_slots)
@@ -415,7 +415,7 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                 
         sch_priority = st.checkbox("High Priority Allocation Status Flag")
         
-        if st.button("📝 Book Appointment Slot Entry Line", disabled=not is_valid_day, type="primary"):
+        if st.button("📝 Book Appointment Slot Entry Line", type="primary"):
             sched_list = st.session_state.get("clinic_schedule_ledger", [])
             sched_list.append({
                 "Date": target_date.isoformat(), "Day": target_date.strftime('%A'), "Time Slot": selected_slot,
@@ -491,7 +491,7 @@ elif page == "📋 Treatment Price Database Panel":
     st.dataframe(pd.DataFrame(flat_records), use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------------------------------
-# PAGE 4: PATIENT HISTORY LOOKUP & LIVE SESSION DATA EDITING ENGINE
+# PAGE 4: PATIENT HISTORY LOOKUP
 # ------------------------------------------------------------------------------
 elif page == "🔍 Patient History Lookup":
     st.subheader("🔍 Patient Comprehensive File Tracking Room")
@@ -519,13 +519,11 @@ elif page == "🔍 Patient History Lookup":
             st.markdown("---")
             st.markdown("#### ✏️ Live Session Data Revision Desk")
             
-            # Select specific log index to fix errors
             tx_labels = [f"Idx {idx} | {item['date']} - {item['procedure'][:40]}..." for idx, item in enumerate(p_tx_history)]
             selected_tx_idx = st.selectbox("Select Exact Transaction Entry Line to Edit", options=range(len(p_tx_history)), format_func=lambda x: tx_labels[x])
             
             target_tx = p_tx_history[selected_tx_idx]
             
-            # Generates dynamic modification panel
             edit_col1, edit_col2, edit_col3 = st.columns(3)
             with edit_col1:
                 updated_procedure_text = st.text_input("Edit Logged Procedure Description", value=target_tx.get("procedure", ""))
@@ -537,11 +535,9 @@ elif page == "🔍 Patient History Lookup":
                 updated_method = st.selectbox("Corrected Payment Gateway", options=PAYMENT_METHODS, index=PAYMENT_METHODS.index(target_tx["method"]) if target_tx["method"] in PAYMENT_METHODS else 0)
                 
             if st.button("💾 Apply Session Data Corrections", type="primary"):
-                # Complete execution recalcs
                 new_total_due = max(0.0, updated_gross - updated_discount)
                 new_balance = new_total_due - updated_paid
                 
-                # Write back into data indexes
                 p_tx_history[selected_tx_idx] = {
                     "date": target_tx["date"],
                     "procedure": updated_procedure_text,
@@ -569,7 +565,7 @@ elif page == "🔍 Patient History Lookup":
             st.warning(f"No clinical procedure history details logged on Tooth {selected_tooth}.")
 
 # ------------------------------------------------------------------------------
-# PAGE 5: PATIENT REGISTRATION & PROFILE DATA MASTER MANAGER
+# PAGE 5: PATIENT REGISTRATION MANAGER
 # ------------------------------------------------------------------------------
 elif page == "👥 Patient Registration Manager":
     st.subheader("👥 Patient Master Profile Intake & Modification Desk")
