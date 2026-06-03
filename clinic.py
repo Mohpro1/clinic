@@ -306,6 +306,7 @@ st.markdown("""
 <style>
     .stButton > button { width: 100% !important; padding: 12px 0px !important; font-size: 15px !important; font-weight: bold !important; border-radius: 8px !important; }
     .mobile-header { text-align: center; font-weight: bold; background-color: #1e293b; color: white; padding: 6px; border-radius: 6px; margin: 12px 0 6px 0; }
+    .date-header { font-size: 18px; font-weight: bold; color: #0284c7; margin-top: 15px; margin-bottom: 5px; border-bottom: 2px solid #e2e8f0; padding-bottom: 3px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -421,6 +422,11 @@ elif page == "📅 Shift Scheduler & Booking Desk":
     sch_tab1, sch_tab2 = st.tabs(["➕ Book New Appointment Slot", "✏️ Edit & Correct Slotted Bookings"])
     appointments = st.session_state.get("clinic_schedule_ledger", [])
     
+    # Live Sorting Rule Engine: Enforce strict sorting chronologically ascending by Date, then Time Slot
+    if appointments:
+        appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
+        st.session_state["clinic_schedule_ledger"] = appointments
+
     with sch_tab1:
         col_sch1, col_sch2 = st.columns([1, 1])
         with col_sch1:
@@ -456,16 +462,12 @@ elif page == "📅 Shift Scheduler & Booking Desk":
             selected_open_case_detail = "N/A (New Case Intake)"
             
             if sch_case_class == "New Case":
-                # For new entries, choose the target patient profile first
                 sch_pid = st.selectbox("Assign Patient ID", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x], key="sch_pid_select_new")
             else:
-                # Upgraded: Displays a global compilation list of ALL active Open Cases across the entire clinic database
                 all_open_cases_list = get_global_open_cases()
                 if all_open_cases_list:
                     case_map = {c["unique_key"]: c["display_label"] for c in all_open_cases_list}
                     chosen_unique_key = st.selectbox("Select Active Open Treatment Case from Master Directory:", options=list(case_map.keys()), format_func=lambda x: case_map[x], key="sch_global_open_case")
-                    
-                    # Deduce exact Patient ID back directly from selected case parameters
                     sch_pid = chosen_unique_key.split("||")[0]
                     selected_open_case_detail = case_map[chosen_unique_key]
                 else:
@@ -482,6 +484,8 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                     "Case Stream Type": sch_case_class, "Linked Target Treatment": selected_open_case_detail,
                     "Priority Status": "High Priority" if sch_priority else "Normal"
                 })
+                # Enforce re-sort on new insert
+                appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                 st.session_state["clinic_schedule_ledger"] = appointments
                 sync_input_to_db("clinic_schedule_ledger")
                 st.success(f"Slot verified and successfully logged down for {st.session_state['patients_registry'][sch_pid]['name']}!")
@@ -490,7 +494,18 @@ elif page == "📅 Shift Scheduler & Booking Desk":
         with col_sch2:
             st.markdown("#### 📋 Existing Appointments Ledger Timeline Matrix")
             if appointments:
-                st.dataframe(pd.DataFrame(appointments), use_container_width=True, hide_index=True)
+                # Group appointments dynamically by unique date to create separated interfaces per day
+                df_all = pd.DataFrame(appointments)
+                unique_dates = df_all["Date"].unique()
+                
+                for day_date in unique_dates:
+                    df_day = df_all[df_all["Date"] == day_date]
+                    day_name = df_day["Day"].iloc[0]
+                    
+                    # Renders a clear visual separation expander container for each distinct date grouping
+                    with st.expander(f"📅 {day_date} ({day_name}) — Total: {len(df_day)} Bookings", expanded=True):
+                        st.dataframe(df_day[["Time Slot", "Patient Name", "Patient ID", "Case Stream Type", "Linked Target Treatment", "Priority Status"]], 
+                                     use_container_width=True, hide_index=True)
             else:
                 st.info("Calendar matrix tracking records are completely clear.")
 
@@ -553,8 +568,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                     all_edit_open_cases = get_global_open_cases()
                     if all_edit_open_cases:
                         edit_case_map = {c["unique_key"]: c["display_label"] for c in all_edit_open_cases}
-                        
-                        # Attempt to auto-focus on currently logged item
                         current_key_target = f"{target_appt.get('Patient ID')}||{target_appt.get('Linked Target Treatment','').split('Case ')[-1].split(' ')[0]}"
                         try:
                             edit_options_list = list(edit_case_map.keys())
@@ -585,13 +598,17 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                         "Linked Target Treatment": edit_open_case_detail,
                         "Priority Status": "High Priority" if edit_priority else "Normal"
                     }
+                    # Enforce resort after edits are submitted
+                    appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                     st.session_state["clinic_schedule_ledger"] = appointments
                     sync_input_to_db("clinic_schedule_ledger")
-                    st.success("Appointment parameters updated successfully!")
+                    st.success("Appointment parameters updated and sorted successfully!")
                     st.rerun()
             with btn_col2:
                 if st.button("❌ Delete/Cancel This Appointment Slot", type="secondary"):
                     appointments.pop(selected_appt_idx)
+                    # Keep sorted structure clear post-deletion
+                    appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                     st.session_state["clinic_schedule_ledger"] = appointments
                     sync_input_to_db("clinic_schedule_ledger")
                     st.warning("Appointment slot was purged from calendar logs.")
