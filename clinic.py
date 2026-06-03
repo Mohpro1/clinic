@@ -245,6 +245,20 @@ def cb_save_session_log():
     st.session_state["session_log_date"] = date.today()
     st.success("Session saved successfully inside transaction ledger data.")
 
+# Dynamic State Callback to handle treatment catalog item insertion safely
+def cb_add_catalog_procedure():
+    a_cat = st.session_state["adm_add_cat"]
+    a_name = st.session_state["adm_add_name"].strip()
+    a_prc = float(st.session_state["adm_add_price"])
+    
+    if a_name:
+        st.session_state["treatment_catalog_db"][a_cat][a_name] = a_prc
+        save_db(st.session_state["treatment_catalog_db"])
+        st.session_state["adm_add_name"] = ""  # Safe execution within pre-render cycle
+        st.toast(f"Appended '{a_name}' successfully!", icon="🚀")
+    else:
+        st.error("Procedure label value cannot be blank!")
+
 # ==============================================================================
 # 4. PALMER NOTATION SYSTEM CONFIGURATION
 # ==============================================================================
@@ -381,7 +395,7 @@ if page == "🩺 Active Session Desk":
     st.button("💾 Commit & File Complete Session Transaction", on_click=cb_save_session_log, type="primary")
 
 # ------------------------------------------------------------------------------
-# PAGE 2: SHIFT SCHEDULER & BOOKING DESK (ALL WEEK DESK)
+# PAGE 2: SHIFT SCHEDULER & BOOKING DESK
 # ------------------------------------------------------------------------------
 elif page == "📅 Shift Scheduler & Booking Desk":
     st.subheader("📅 Live Weekly Shift Planner Matrix")
@@ -393,7 +407,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
         end_hour = st.number_input("End Hour Window (24h)", min_value=start_hour+1, max_value=24, value=17)
         target_date = st.date_input("Select Plan Date Target", value=date.today())
         
-        # All days are fully accessible
         st.success(f"✅ Approved Working Shift Calendar Day: {target_date.strftime('%A')}")
             
         time_slots = [f"{h:02d}:00 - {h+1:02d}:00" for h in range(start_hour, end_hour)]
@@ -449,18 +462,8 @@ elif page == "📋 Treatment Price Database Panel":
         st.text_input("New Treatment Procedure Label Name", key="adm_add_name")
         st.number_input("Base Global Rate Cost Fee (TL ₺)", min_value=0.0, step=100.0, key="adm_add_price")
         
-        if st.button("🚀 Insert New Treatment Type Option", type="primary"):
-            a_cat = st.session_state["adm_add_cat"]
-            a_name = st.session_state["adm_add_name"].strip()
-            a_prc = float(st.session_state["adm_add_price"])
-            
-            if a_name:
-                st.session_state["treatment_catalog_db"][a_cat][a_name] = a_prc
-                sync_input_to_db("treatment_catalog_db")
-                st.success(f"Successfully appended '{a_name}' under {a_cat} with base rate {a_prc:,.2f} TL!")
-                st.session_state["adm_add_name"] = ""
-            else:
-                st.error("Procedure label value cannot be blank!")
+        # Uses the callback engine to avoid Streamlit Mutation Crashes
+        st.button("🚀 Insert New Treatment Type Option", on_click=cb_add_catalog_procedure, type="primary")
 
     with adm_t2:
         st.markdown("#### Modify Configured Tariff Fee Base Scale Parameters")
