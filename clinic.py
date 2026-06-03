@@ -89,8 +89,8 @@ history_db = get_state_val("tooth_history_ledger", {
 })
 
 finance_db = get_state_val("finance_ledger", {
-    "P0001": [{"date": "2026-02-15", "procedure": "Composite Filling (Tooth: UR6)", "gross_calculated": 2500.0, "discount_applied": 0.0, "total_due": 2500.0, "amount_paid": 2500.0, "method": "Cash", "balance": 0.0}],
-    "P0002": []
+    "P0001": [{"date": "2026-02-15", "procedure": "Composite Filling (Tooth: UR6)", "gross_calculated": 2500.0, "discount_applied": 0.0, "total_due": 2500.0, "amount_paid": 2000.0, "method": "Cash", "balance": 500.0}],
+    "P0002": [{"date": "2026-02-16", "procedure": "Fluoride Treatment (Tooth: LLA)", "gross_calculated": 1250.0, "discount_applied": 50.0, "total_due": 1200.0, "amount_paid": 400.0, "method": "Credit Card", "balance": 800.0}]
 })
 
 schedule_db = get_state_val("clinic_schedule_ledger", [])
@@ -316,7 +316,8 @@ page = st.sidebar.radio("Workspace Navigation Layout Options:", [
     "📅 Shift Scheduler & Booking Desk",
     "📋 Treatment Price Database Panel",
     "🔍 Patient History Lookup",
-    "👥 Patient Registration Manager"
+    "👥 Patient Registration Manager",
+    "💰 Financial Analytics Matrix"
 ])
 
 st.title("Havence Dental Management System")
@@ -422,7 +423,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
     sch_tab1, sch_tab2 = st.tabs(["➕ Book New Appointment Slot", "✏️ Edit & Correct Slotted Bookings"])
     appointments = st.session_state.get("clinic_schedule_ledger", [])
     
-    # Live Sorting Rule Engine: Enforce strict sorting chronologically ascending by Date, then Time Slot
     if appointments:
         appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
         st.session_state["clinic_schedule_ledger"] = appointments
@@ -455,7 +455,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
 
             selected_slot = st.selectbox("Available Matrix Scheduled Slots", options=time_slots if time_slots else ["N/A"], key="sch_selected_slot")
             
-            # Master Mode Switch: New Case vs Open Case
             sch_case_class = st.radio("Booking Strategy Type Selection", options=["New Case", "Open Case"], horizontal=True, key="sch_class_select")
             
             sch_pid = ""
@@ -484,7 +483,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                     "Case Stream Type": sch_case_class, "Linked Target Treatment": selected_open_case_detail,
                     "Priority Status": "High Priority" if sch_priority else "Normal"
                 })
-                # Enforce re-sort on new insert
                 appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                 st.session_state["clinic_schedule_ledger"] = appointments
                 sync_input_to_db("clinic_schedule_ledger")
@@ -494,7 +492,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
         with col_sch2:
             st.markdown("#### 📋 Existing Appointments Ledger Timeline Matrix")
             if appointments:
-                # Group appointments dynamically by unique date to create separated interfaces per day
                 df_all = pd.DataFrame(appointments)
                 unique_dates = df_all["Date"].unique()
                 
@@ -502,7 +499,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                     df_day = df_all[df_all["Date"] == day_date]
                     day_name = df_day["Day"].iloc[0]
                     
-                    # Renders a clear visual separation expander container for each distinct date grouping
                     with st.expander(f"📅 {day_date} ({day_name}) — Total: {len(df_day)} Bookings", expanded=True):
                         st.dataframe(df_day[["Time Slot", "Patient Name", "Patient ID", "Case Stream Type", "Linked Target Treatment", "Priority Status"]], 
                                      use_container_width=True, hide_index=True)
@@ -589,16 +585,11 @@ elif page == "📅 Shift Scheduler & Booking Desk":
             with btn_col1:
                 if st.button("💾 Apply Appointment Re-scheduling Corrections", type="primary"):
                     appointments[selected_appt_idx] = {
-                        "Date": edit_date.isoformat(),
-                        "Day": edit_date.strftime('%A'),
-                        "Time Slot": edit_slot,
-                        "Patient ID": edit_pid,
-                        "Patient Name": st.session_state["patients_registry"][edit_pid]["name"],
-                        "Case Stream Type": edit_class,
-                        "Linked Target Treatment": edit_open_case_detail,
+                        "Date": edit_date.isoformat(), "Day": edit_date.strftime('%A'), "Time Slot": edit_slot,
+                        "Patient ID": edit_pid, "Patient Name": st.session_state["patients_registry"][edit_pid]["name"],
+                        "Case Stream Type": edit_class, "Linked Target Treatment": edit_open_case_detail,
                         "Priority Status": "High Priority" if edit_priority else "Normal"
                     }
-                    # Enforce resort after edits are submitted
                     appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                     st.session_state["clinic_schedule_ledger"] = appointments
                     sync_input_to_db("clinic_schedule_ledger")
@@ -607,7 +598,6 @@ elif page == "📅 Shift Scheduler & Booking Desk":
             with btn_col2:
                 if st.button("❌ Delete/Cancel This Appointment Slot", type="secondary"):
                     appointments.pop(selected_appt_idx)
-                    # Keep sorted structure clear post-deletion
                     appointments = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                     st.session_state["clinic_schedule_ledger"] = appointments
                     sync_input_to_db("clinic_schedule_ledger")
@@ -708,14 +698,9 @@ elif page == "🔍 Patient History Lookup":
                 new_balance = new_total_due - updated_paid
                 
                 p_tx_history[selected_tx_idx] = {
-                    "date": target_tx["date"],
-                    "procedure": updated_procedure_text,
-                    "gross_calculated": updated_gross,
-                    "discount_applied": updated_discount,
-                    "total_due": new_total_due,
-                    "amount_paid": updated_paid,
-                    "method": updated_method if updated_paid > 0 else "N/A",
-                    "balance": new_balance
+                    "date": target_tx["date"], "procedure": updated_procedure_text, "gross_calculated": updated_gross,
+                    "discount_applied": updated_discount, "total_due": new_total_due, "amount_paid": updated_paid,
+                    "method": updated_method if updated_paid > 0 else "N/A", "balance": new_balance
                 }
                 st.session_state["finance_ledger"][lookup_pid] = p_tx_history
                 sync_input_to_db("finance_ledger")
@@ -753,12 +738,7 @@ elif page == "👥 Patient Registration Manager":
         with c_adm2:
             raw_patients = []
             for pid, d in st.session_state["patients_registry"].items():
-                raw_patients.append({
-                    "ID Profile Code": pid, 
-                    "Full Name": d["name"], 
-                    "Contact Line Mobile": d["phone"], 
-                    "Age": d["age"]
-                })
+                raw_patients.append({"ID Profile Code": pid, "Full Name": d["name"], "Contact Line Mobile": d["phone"], "Age": d["age"]})
             st.dataframe(pd.DataFrame(raw_patients), use_container_width=True, hide_index=True)
 
     with reg_tab2:
@@ -767,7 +747,6 @@ elif page == "👥 Patient Registration Manager":
         
         if edit_pid:
             current_profile = st.session_state["patients_registry"][edit_pid]
-            
             edit_name = st.text_input("Modify Full Name", value=current_profile["name"])
             edit_phone = st.text_input("Modify Mobile Contact Phone Line", value=current_profile["phone"])
             edit_age = st.number_input("Modify Patient Age", value=int(current_profile.get("age", 30)), min_value=0, max_value=120, step=1)
@@ -776,12 +755,114 @@ elif page == "👥 Patient Registration Manager":
             edit_center = st.selectbox("Modify Assigned Medical Center Site", options=CENTERS, index=curr_center_idx)
             
             if st.button("💾 Apply Profile Update Changes", type="primary"):
-                st.session_state["patients_registry"][edit_pid] = {
-                    "name": edit_name.strip(),
-                    "phone": edit_phone.strip(),
-                    "center": edit_center,
-                    "age": int(edit_age)
-                }
+                st.session_state["patients_registry"][edit_pid] = {"name": edit_name.strip(), "phone": edit_phone.strip(), "center": edit_center, "age": int(edit_age)}
                 sync_input_to_db("patients_registry")
                 st.success(f"Profile {edit_pid} successfully overwritten inside registry file matrix.")
                 st.rerun()
+
+# ------------------------------------------------------------------------------
+# PAGE 6: FINANCIAL ANALYTICS MATRIX (NEW PAGE)
+# ------------------------------------------------------------------------------
+elif page == "💰 Financial Analytics Matrix":
+    st.subheader("💰 Financial Performance & Fee Splitting Engine")
+    
+    fin_tab1, fin_tab2, fin_tab3 = st.tabs([
+        "📋 Outstanding Receivables (Money Owed)", 
+        "📈 Daily Income Split (60% / 40%)", 
+        "📅 Monthly Financial Summary Ledger"
+    ])
+    
+    # Compilation Step: Extract all individual transactions from all patients into a single flat list
+    master_tx_list = []
+    ledger_data = st.session_state.get("finance_ledger", {})
+    registry_data = st.session_state.get("patients_registry", {})
+    
+    for pid, tx_records in ledger_data.items():
+        p_name = registry_data.get(pid, {}).get("name", f"Unknown ({pid})")
+        for record in tx_records:
+            master_tx_list.append({
+                "Patient ID": pid,
+                "Patient Name": p_name,
+                "Date": record.get("date", ""),
+                "Procedure": record.get("procedure", ""),
+                "Gross Total": float(record.get("gross_calculated", 0.0)),
+                "Discount": float(record.get("discount_applied", 0.0)),
+                "Net Invoiced Due": float(record.get("total_due", 0.0)),
+                "Amount Paid (Income)": float(record.get("amount_paid", 0.0)),
+                "Unpaid Balance": float(record.get("balance", 0.0))
+            })
+            
+    df_master = pd.DataFrame(master_tx_list) if master_tx_list else pd.DataFrame(
+        columns=["Patient ID", "Patient Name", "Date", "Procedure", "Gross Total", "Discount", "Net Invoiced Due", "Amount Paid (Income)", "Unpaid Balance"]
+    )
+    
+    with fin_tab1:
+        st.markdown("#### 📋 Money Owed to Clinic by Patient Profile")
+        
+        if not df_master.empty:
+            # Group by patient to find cumulative unpaid debt balances
+            df_receivables = df_master.groupby(["Patient ID", "Patient Name"])["Unpaid Balance"].sum().reset_index()
+            # Filter to show only patients who actually owe money
+            df_receivables = df_receivables[df_receivables["Unpaid Balance"] > 0].sort_values(by="Unpaid Balance", ascending=False)
+            
+            if not df_receivables.empty:
+                total_outstanding = df_receivables["Unpaid Balance"].sum()
+                st.metric("Total Clinic Outstanding Receivables", f"{total_outstanding:,.2f} TL")
+                
+                # Format for clean display
+                df_receivables_display = df_receivables.copy()
+                df_receivables_display["Unpaid Balance"] = df_receivables_display["Unpaid Balance"].map(lambda x: f"{x:,.2f} TL")
+                st.dataframe(df_receivables_display, use_container_width=True, hide_index=True)
+            else:
+                st.success("🎉 Perfect balance sheet! No patient has any outstanding debt lines.")
+        else:
+            st.info("No transaction tracking records found in database.")
+            
+    with fin_tab2:
+        st.markdown("#### 📈 Daily Income Aggregation & Revenue Splits")
+        
+        if not df_master.empty:
+            # Group by clean transaction date string
+            df_daily = df_master.groupby("Date")["Amount Paid (Income)"].sum().reset_index()
+            df_daily = df_daily.rename(columns={"Amount Paid (Income)": "Total Revenue (Collected)"})
+            
+            # Mathematical 60/40 Commission Splits Strategy
+            df_daily["Medical Center Share (60%)"] = df_daily["Total Revenue (Collected)"] * 0.60
+            df_daily["My Share (40%)"] = df_daily["Total Revenue (Collected)"] * 0.40
+            
+            # Chronological presentation
+            df_daily = df_daily.sort_values(by="Date", ascending=False)
+            
+            # Format numbers for professional display look
+            df_daily_display = df_daily.copy()
+            for col in ["Total Revenue (Collected)", "Medical Center Share (60%)", "My Share (40%)"]:
+                df_daily_display[col] = df_daily_display[col].map(lambda x: f"{x:,.2f} TL")
+                
+            st.dataframe(df_daily_display, use_container_width=True, hide_index=True)
+        else:
+            st.info("No income collections recorded yet.")
+            
+    with fin_tab3:
+        st.markdown("#### 📅 Cumulative Monthly Performance Summary")
+        
+        if not df_master.empty:
+            df_monthly_calc = df_master.copy()
+            # Extract Year-Month string (YYYY-MM) from string date formats securely
+            df_monthly_calc["Month"] = df_monthly_calc["Date"].apply(lambda x: x[:7] if isinstance(x, str) else date.today().strftime('%Y-%m'))
+            
+            df_month = df_monthly_calc.groupby("Month")["Amount Paid (Income)"].sum().reset_index()
+            df_month = df_month.rename(columns={"Amount Paid (Income)": "Total Monthly Revenue"})
+            
+            # Monthly structural share distributions
+            df_month["Medical Center Share (60%)"] = df_month["Total Monthly Revenue"] * 0.60
+            df_month["My Share (40%)"] = df_month["Total Monthly Revenue"] * 0.40
+            
+            df_month = df_month.sort_values(by="Month", ascending=False)
+            
+            df_month_display = df_month.copy()
+            for col in ["Total Monthly Revenue", "Medical Center Share (60%)", "My Share (40%)"]:
+                df_month_display[col] = df_month_display[col].map(lambda x: f"{x:,.2f} TL")
+                
+            st.dataframe(df_month_display, use_container_width=True, hide_index=True)
+        else:
+            st.info("No transaction activity found to calculate monthly profiles.")
