@@ -80,12 +80,12 @@ patients_db = get_state_val("patients_registry", {
 })
 
 cases_db = get_state_val("patient_cases_tracker", {
-    "P0001": [{"case_id": "C001", "tooth": "UR6", "treatment": "Composite Filling", "type": "New Session (New Query)", "status": "Finished", "est_sessions": 1}],
-    "P0002": []
+    "P0001": [{"case_id": "C001", "tooth": "UR6", "treatment": "Composite Filling", "type": "New Session (New Query)", "status": "Open", "est_sessions": 2}],
+    "P0002": [{"case_id": "C002", "tooth": "LLA", "treatment": "Fluoride Application", "type": "New Session (New Query)", "status": "Open", "est_sessions": 1}]
 })
 
 history_db = get_state_val("tooth_history_ledger", {
-    "P0001": {"UR6": [{"date": "2026-02-15", "treatment": "[New Session] Composite Filling", "center": "Istanbul Tower", "notes": "Initial setup completed.", "status": "Finished"}]}
+    "P0001": {"UR6": [{"date": "2026-02-15", "treatment": "[New Session] Composite Filling", "center": "Istanbul Tower", "notes": "Initial setup completed.", "status": "Open"}]}
 })
 
 finance_db = get_state_val("finance_ledger", {
@@ -281,6 +281,22 @@ for hour in range(0, 24):
     HALF_HOUR_OPTIONS.append(f"{hour:02d}:00")
     HALF_HOUR_OPTIONS.append(f"{hour:02d}:30")
 
+# Helper to look up all open cases globally across all patient IDs
+def get_global_open_cases():
+    global_cases = []
+    tracker = st.session_state.get("patient_cases_tracker", {})
+    registry = st.session_state.get("patients_registry", {})
+    
+    for pid, cases in tracker.items():
+        p_name = registry.get(pid, {}).get("name", "Unknown Patient")
+        for c in cases:
+            if c.get("status") == "Open":
+                global_cases.append({
+                    "unique_key": f"{pid}||{c['case_id']}",
+                    "display_label": f"📄 {p_name} ({pid}) — Case {c['case_id']}: Tooth {c['tooth']} [{c['treatment']}]"
+                })
+    return global_cases
+
 # ==============================================================================
 # 5. UI LAYOUT ARCHITECTURE
 # ==============================================================================
@@ -402,71 +418,186 @@ if page == "🩺 Active Session Desk":
 elif page == "📅 Shift Scheduler & Booking Desk":
     st.subheader("📅 Live Weekly Shift Planner Matrix")
     
-    col_sch1, col_sch2 = st.columns([1, 1])
-    with col_sch1:
-        st.markdown("#### 🕒 Booking Blocks & Working Shifts")
-        
-        start_str = st.selectbox("Shift Start Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("09:00"))
-        end_str = st.selectbox("Shift End Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("17:00"))
-        
-        target_date = st.date_input("Select Plan Date Target", value=date.today())
-        st.success(f"✅ Approved Working Shift Calendar Day: {target_date.strftime('%A')}")
-        
-        duration_mode = st.radio("Appointment Step Duration", options=["30 Minutes", "1 Hour"], horizontal=True)
-        
-        t_start = datetime.strptime(start_str, "%H:%M")
-        t_end = datetime.strptime(end_str, "%H:%M")
-        
-        time_slots = []
-        current_slot_time = t_start
-        step_delta = timedelta(minutes=30) if duration_mode == "30 Minutes" else timedelta(hours=1)
-        
-        if t_start >= t_end:
-            st.error("Error: Shift End Time must be later than the Start Time!")
-        else:
-            while current_slot_time + step_delta <= t_end:
-                slot_start_label = current_slot_time.strftime("%H:%M")
-                slot_end_label = (current_slot_time + step_delta).strftime("%H:%M")
-                time_slots.append(f"{slot_start_label} - {slot_end_label}")
-                current_slot_time += step_delta
-
-        selected_slot = st.selectbox("Available Matrix Scheduled Slots", options=time_slots if time_slots else ["N/A"])
-        
-        sch_pid = st.selectbox("Assign Patient ID", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x])
-        sch_case_class = st.radio("Intake Case Classification Group", options=["New Case", "Open Case"], horizontal=True)
-        
-        selected_open_case_detail = "N/A (New Case Intake)"
-        if sch_case_class == "Open Case":
-            open_cases = [c for c in st.session_state.get("patient_cases_tracker", {}).get(sch_pid, []) if c["status"] == "Open"]
-            if open_cases:
-                case_options = {f"{c['case_id']}": f"Tooth {c['tooth']} - {c['treatment']} ({c['est_sessions']} left)" for c in open_cases}
-                chosen_cid = st.selectbox("Select Active Open Treatment Case to Continue:", options=list(case_options.keys()), format_func=lambda x: case_options[x])
-                selected_open_case_detail = case_options[chosen_cid]
+    sch_tab1, sch_tab2 = st.tabs(["➕ Book New Appointment Slot", "✏️ Edit & Correct Slotted Bookings"])
+    appointments = st.session_state.get("clinic_schedule_ledger", [])
+    
+    with sch_tab1:
+        col_sch1, col_sch2 = st.columns([1, 1])
+        with col_sch1:
+            st.markdown("#### 🕒 Booking Blocks & Working Shifts")
+            
+            start_str = st.selectbox("Shift Start Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("09:00"), key="sch_shift_start")
+            end_str = st.selectbox("Shift End Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("17:00"), key="sch_shift_end")
+            
+            target_date = st.date_input("Select Plan Date Target", value=date.today(), key="sch_target_date")
+            st.success(f"✅ Approved Working Shift Calendar Day: {target_date.strftime('%A')}")
+            
+            duration_mode = st.radio("Appointment Step Duration", options=["30 Minutes", "1 Hour"], horizontal=True, key="sch_duration_mode")
+            
+            t_start = datetime.strptime(start_str, "%H:%M")
+            t_end = datetime.strptime(end_str, "%H:%M")
+            time_slots = []
+            current_slot_time = t_start
+            step_delta = timedelta(minutes=30) if duration_mode == "30 Minutes" else timedelta(hours=1)
+            
+            if t_start >= t_end:
+                st.error("Error: Shift End Time must be later than the Start Time!")
             else:
-                st.warning("No active Open Cases located for this profile! Resetting entry path to New Case.")
-                sch_case_class = "New Case"
-                
-        sch_priority = st.checkbox("High Priority Allocation Status Flag")
-        
-        if st.button("📝 Book Appointment Slot Entry Line", type="primary") and time_slots:
-            sched_list = st.session_state.get("clinic_schedule_ledger", [])
-            sched_list.append({
-                "Date": target_date.isoformat(), "Day": target_date.strftime('%A'), "Time Slot": selected_slot,
-                "Patient Name": st.session_state["patients_registry"][sch_pid]["name"], 
-                "Case Stream Type": sch_case_class, "Linked Target Treatment": selected_open_case_detail,
-                "Priority Status": "High Priority" if sch_priority else "Normal"
-            })
-            st.session_state["clinic_schedule_ledger"] = sched_list
-            sync_input_to_db("clinic_schedule_ledger")
-            st.success("Slot verified and successfully written down!")
+                while current_slot_time + step_delta <= t_end:
+                    time_slots.append(f"{current_slot_time.strftime('%H:%M')} - {(current_slot_time + step_delta).strftime('%H:%M')}")
+                    current_slot_time += step_delta
 
-    with col_sch2:
-        st.markdown("#### 📋 Existing Appointments Ledger Timeline Matrix")
-        appointments = st.session_state.get("clinic_schedule_ledger", [])
+            selected_slot = st.selectbox("Available Matrix Scheduled Slots", options=time_slots if time_slots else ["N/A"], key="sch_selected_slot")
+            
+            # Master Mode Switch: New Case vs Open Case
+            sch_case_class = st.radio("Booking Strategy Type Selection", options=["New Case", "Open Case"], horizontal=True, key="sch_class_select")
+            
+            sch_pid = ""
+            selected_open_case_detail = "N/A (New Case Intake)"
+            
+            if sch_case_class == "New Case":
+                # For new entries, choose the target patient profile first
+                sch_pid = st.selectbox("Assign Patient ID", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x], key="sch_pid_select_new")
+            else:
+                # Upgraded: Displays a global compilation list of ALL active Open Cases across the entire clinic database
+                all_open_cases_list = get_global_open_cases()
+                if all_open_cases_list:
+                    case_map = {c["unique_key"]: c["display_label"] for c in all_open_cases_list}
+                    chosen_unique_key = st.selectbox("Select Active Open Treatment Case from Master Directory:", options=list(case_map.keys()), format_func=lambda x: case_map[x], key="sch_global_open_case")
+                    
+                    # Deduce exact Patient ID back directly from selected case parameters
+                    sch_pid = chosen_unique_key.split("||")[0]
+                    selected_open_case_detail = case_map[chosen_unique_key]
+                else:
+                    st.warning("No active running Open Cases found anywhere inside the records. Reverting to New Case strategy layout.")
+                    sch_case_class = "New Case"
+                    sch_pid = st.selectbox("Assign Patient ID", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x], key="sch_pid_select_fallback")
+
+            sch_priority = st.checkbox("High Priority Allocation Status Flag", key="sch_priority_flag")
+            
+            if st.button("📝 Book Appointment Slot Entry Line", type="primary") and time_slots:
+                appointments.append({
+                    "Date": target_date.isoformat(), "Day": target_date.strftime('%A'), "Time Slot": selected_slot,
+                    "Patient ID": sch_pid, "Patient Name": st.session_state["patients_registry"][sch_pid]["name"], 
+                    "Case Stream Type": sch_case_class, "Linked Target Treatment": selected_open_case_detail,
+                    "Priority Status": "High Priority" if sch_priority else "Normal"
+                })
+                st.session_state["clinic_schedule_ledger"] = appointments
+                sync_input_to_db("clinic_schedule_ledger")
+                st.success(f"Slot verified and successfully logged down for {st.session_state['patients_registry'][sch_pid]['name']}!")
+                st.rerun()
+
+        with col_sch2:
+            st.markdown("#### 📋 Existing Appointments Ledger Timeline Matrix")
+            if appointments:
+                st.dataframe(pd.DataFrame(appointments), use_container_width=True, hide_index=True)
+            else:
+                st.info("Calendar matrix tracking records are completely clear.")
+
+    with sch_tab2:
+        st.markdown("#### ✏️ Live Appointment Data Editing Desk")
         if appointments:
-            st.dataframe(pd.DataFrame(appointments), use_container_width=True, hide_index=True)
+            appt_labels = [f"Idx {idx} | {item['Date']} ({item['Time Slot']}) - {item['Patient Name']}" for idx, item in enumerate(appointments)]
+            selected_appt_idx = st.selectbox("Select Scheduled Appointment Line to Edit", options=range(len(appointments)), format_func=lambda x: appt_labels[x])
+            
+            target_appt = appointments[selected_appt_idx]
+            
+            try:
+                curr_appt_date = datetime.fromisoformat(target_appt["Date"]).date()
+            except Exception:
+                curr_appt_date = date.today()
+                
+            ed_col1, ed_col2 = st.columns(2)
+            with ed_col1:
+                edit_date = st.date_input("Edit Appointment Date", value=curr_appt_date, key="edit_appt_date")
+                edit_start_str = st.selectbox("Edit Shift Start Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("09:00"), key="edit_shift_start")
+                edit_end_str = st.selectbox("Edit Shift End Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("17:00"), key="edit_shift_end")
+                edit_duration_mode = st.radio("Edit Slot Slicing Steps", options=["30 Minutes", "1 Hour"], horizontal=True, key="edit_duration_mode")
+                
+                et_start = datetime.strptime(edit_start_str, "%H:%M")
+                et_end = datetime.strptime(edit_end_str, "%H:%M")
+                edit_slots = []
+                es_current = et_start
+                es_delta = timedelta(minutes=30) if edit_duration_mode == "30 Minutes" else timedelta(hours=1)
+                
+                while es_current + es_delta <= et_end:
+                    edit_slots.append(f"{es_current.strftime('%H:%M')} - {(es_current + es_delta).strftime('%H:%M')}")
+                    es_current += es_delta
+                
+                try:
+                    slot_index = edit_slots.index(target_appt["Time Slot"])
+                except ValueError:
+                    slot_index = 0
+                    
+                edit_slot = st.selectbox("Edit Time Slot Window", options=edit_slots if edit_slots else ["N/A"], index=slot_index if edit_slots else 0)
+                
+            with ed_col2:
+                try:
+                    class_index = ["New Case", "Open Case"].index(target_appt["Case Stream Type"])
+                except ValueError:
+                    class_index = 0
+                    
+                edit_class = st.radio("Modify Booking Strategy Type", options=["New Case", "Open Case"], index=class_index, key="edit_class_choice")
+                
+                edit_pid = ""
+                edit_open_case_detail = "N/A (New Case Intake)"
+                
+                if edit_class == "New Case":
+                    try:
+                        pat_keys = list(patient_selectors.keys())
+                        pat_index = pat_keys.index(target_appt.get("Patient ID", ""))
+                    except ValueError:
+                        pat_index = 0
+                    edit_pid = st.selectbox("Change Patient Profile", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x], index=pat_index, key="edit_pid_select_new")
+                else:
+                    all_edit_open_cases = get_global_open_cases()
+                    if all_edit_open_cases:
+                        edit_case_map = {c["unique_key"]: c["display_label"] for c in all_edit_open_cases}
+                        
+                        # Attempt to auto-focus on currently logged item
+                        current_key_target = f"{target_appt.get('Patient ID')}||{target_appt.get('Linked Target Treatment','').split('Case ')[-1].split(' ')[0]}"
+                        try:
+                            edit_options_list = list(edit_case_map.keys())
+                            default_edit_idx = edit_options_list.index(current_key_target)
+                        except ValueError:
+                            default_edit_idx = 0
+                            
+                        edit_chosen_unique_key = st.selectbox("Select Active Open Treatment Case from Master Directory:", options=list(edit_case_map.keys()), format_func=lambda x: edit_case_map[x], index=default_edit_idx, key="edit_global_open_case")
+                        edit_pid = edit_chosen_unique_key.split("||")[0]
+                        edit_open_case_detail = edit_case_map[edit_chosen_unique_key]
+                    else:
+                        st.warning("No running Open Cases found anywhere. Forcing edit strategy to New Case mode.")
+                        edit_class = "New Case"
+                        edit_pid = st.selectbox("Change Patient Profile", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x], key="edit_pid_select_fallback")
+
+                edit_priority = st.checkbox("High Priority Flag", value=(target_appt["Priority Status"] == "High Priority"))
+                
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("💾 Apply Appointment Re-scheduling Corrections", type="primary"):
+                    appointments[selected_appt_idx] = {
+                        "Date": edit_date.isoformat(),
+                        "Day": edit_date.strftime('%A'),
+                        "Time Slot": edit_slot,
+                        "Patient ID": edit_pid,
+                        "Patient Name": st.session_state["patients_registry"][edit_pid]["name"],
+                        "Case Stream Type": edit_class,
+                        "Linked Target Treatment": edit_open_case_detail,
+                        "Priority Status": "High Priority" if edit_priority else "Normal"
+                    }
+                    st.session_state["clinic_schedule_ledger"] = appointments
+                    sync_input_to_db("clinic_schedule_ledger")
+                    st.success("Appointment parameters updated successfully!")
+                    st.rerun()
+            with btn_col2:
+                if st.button("❌ Delete/Cancel This Appointment Slot", type="secondary"):
+                    appointments.pop(selected_appt_idx)
+                    st.session_state["clinic_schedule_ledger"] = appointments
+                    sync_input_to_db("clinic_schedule_ledger")
+                    st.warning("Appointment slot was purged from calendar logs.")
+                    st.rerun()
         else:
-            st.info("Calendar matrix tracking records are completely clear.")
+            st.info("No bookings recorded inside the timeline register.")
 
 # ------------------------------------------------------------------------------
 # PAGE 3: TREATMENT PRICE DATABASE PANEL
@@ -586,7 +717,7 @@ elif page == "🔍 Patient History Lookup":
             st.warning(f"No clinical procedure history details logged on Tooth {selected_tooth}.")
 
 # ------------------------------------------------------------------------------
-# PAGE 5: PATIENT REGISTRATION MANAGER (AGE DOMAIN MATRIX CONFIG)
+# PAGE 5: PATIENT REGISTRATION MANAGER
 # ------------------------------------------------------------------------------
 elif page == "👥 Patient Registration Manager":
     st.subheader("👥 Patient Master Profile Intake & Modification Desk")
@@ -598,17 +729,13 @@ elif page == "👥 Patient Registration Manager":
         with c_adm1:
             st.text_input("Full Patient Registration Name", key="new_pat_name")
             st.text_input("Mobile Contact Phone Line", key="new_pat_phone")
-            
-            # Upgraded from Date Picker to clean direct Age Number Input field
             st.number_input("Patient Age", min_value=0, max_value=120, key="new_pat_age", step=1)
-            
             st.selectbox("Default Assigned Medical Center Site", options=CENTERS, key="new_pat_center")
             st.button("🚀 File Complete Patient Profile Intake", on_click=cb_add_new_patient, type="primary")
             
         with c_adm2:
             raw_patients = []
             for pid, d in st.session_state["patients_registry"].items():
-                # Table completely modified to include the explicit Age column block view
                 raw_patients.append({
                     "ID Profile Code": pid, 
                     "Full Name": d["name"], 
