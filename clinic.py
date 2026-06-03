@@ -75,8 +75,8 @@ catalog_db = get_state_val("treatment_catalog_db", {
 })
 
 patients_db = get_state_val("patients_registry", {
-    "P0001": {"name": "Yusuf Demir", "phone": "+90 532 123 4567", "center": "Istanbul Tower", "age": 28, "birth_date": "1998-05-12"},
-    "P0002": {"name": "Amina El-Amin", "phone": "+90 555 987 6543", "center": "Elsifa Medical Center", "age": 9, "birth_date": "2017-08-20"}
+    "P0001": {"name": "Yusuf Demir", "phone": "+90 532 123 4567", "center": "Istanbul Tower", "age": 28},
+    "P0002": {"name": "Amina El-Amin", "phone": "+90 555 987 6543", "center": "Elsifa Medical Center", "age": 9}
 })
 
 cases_db = get_state_val("patient_cases_tracker", {
@@ -112,7 +112,7 @@ get_state_val("session_high_priority", False)
 
 get_state_val("new_pat_name", "")
 get_state_val("new_pat_phone", "")
-get_state_val("new_pat_birth", date.today())
+get_state_val("new_pat_age", 30)
 get_state_val("new_pat_center", CENTERS[0])
 
 # Catalog management fields
@@ -129,7 +129,7 @@ get_state_val("adm_edit_price", 2500.0)
 def cb_add_new_patient():
     name = st.session_state.get("new_pat_name", "").strip()
     phone = st.session_state.get("new_pat_phone", "").strip()
-    bdate = st.session_state.get("new_pat_birth")
+    age = int(st.session_state.get("new_pat_age", 30))
     center = st.session_state.get("new_pat_center")
     
     if not name or not phone: 
@@ -145,8 +145,7 @@ def cb_add_new_patient():
     new_code = f"P{next_id:04d}"
     
     registry[new_code] = {
-        "name": name, "phone": phone, "center": center, 
-        "age": date.today().year - bdate.year, "birth_date": bdate.isoformat()
+        "name": name, "phone": phone, "center": center, "age": age
     }
     st.session_state["patients_registry"] = registry
     sync_input_to_db("patients_registry")
@@ -158,6 +157,7 @@ def cb_add_new_patient():
     
     st.session_state["new_pat_name"] = ""
     st.session_state["new_pat_phone"] = ""
+    st.session_state["new_pat_age"] = 30
     st.success(f"Registered {name} successfully as {new_code}!")
 
 def cb_toggle_grid_tooth(tooth_id):
@@ -276,7 +276,6 @@ all_child_palmer = child_quad_ur + child_quad_ul + child_quad_lr + child_quad_ll
 
 patient_selectors = {k: f"{v['name']} [{k}]" for k, v in st.session_state["patients_registry"].items()}
 
-# Generate timestamp intervals array for setup dropdown options
 HALF_HOUR_OPTIONS = []
 for hour in range(0, 24):
     HALF_HOUR_OPTIONS.append(f"{hour:02d}:00")
@@ -407,17 +406,14 @@ elif page == "📅 Shift Scheduler & Booking Desk":
     with col_sch1:
         st.markdown("#### 🕒 Booking Blocks & Working Shifts")
         
-        # Upgraded Start and End selectors to full half-hour dropdown lists
         start_str = st.selectbox("Shift Start Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("09:00"))
         end_str = st.selectbox("Shift End Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("17:00"))
         
         target_date = st.date_input("Select Plan Date Target", value=date.today())
         st.success(f"✅ Approved Working Shift Calendar Day: {target_date.strftime('%A')}")
         
-        # New Feature: Let user explicitly choose between 30 Minutes or 1 Hour steps
         duration_mode = st.radio("Appointment Step Duration", options=["30 Minutes", "1 Hour"], horizontal=True)
         
-        # Parse times to generate dynamic list slots accurately
         t_start = datetime.strptime(start_str, "%H:%M")
         t_end = datetime.strptime(end_str, "%H:%M")
         
@@ -523,7 +519,7 @@ elif page == "🔍 Patient History Lookup":
     lookup_pid = st.selectbox("Select Patient Target Index File", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x])
     p_profile = st.session_state["patients_registry"][lookup_pid]
     
-    st.markdown(f"**Name:** {p_profile['name']} | **Contact Line:** {p_profile['phone']} | **Default Registered Center:** {p_profile['center']}")
+    st.markdown(f"**Name:** {p_profile['name']} | **Contact Line:** {p_profile['phone']} | **Age:** {p_profile['age']} | **Default Registered Center:** {p_profile['center']}")
     
     h_tab1, h_tab2, h_tab3 = st.tabs(["📊 Case Tracking Lifecycles", "💰 Account Transaction Statement Logs & Editing", "🦷 Isolated Tooth History Charts"])
     
@@ -590,7 +586,7 @@ elif page == "🔍 Patient History Lookup":
             st.warning(f"No clinical procedure history details logged on Tooth {selected_tooth}.")
 
 # ------------------------------------------------------------------------------
-# PAGE 5: PATIENT REGISTRATION MANAGER
+# PAGE 5: PATIENT REGISTRATION MANAGER (AGE DOMAIN MATRIX CONFIG)
 # ------------------------------------------------------------------------------
 elif page == "👥 Patient Registration Manager":
     st.subheader("👥 Patient Master Profile Intake & Modification Desk")
@@ -602,14 +598,23 @@ elif page == "👥 Patient Registration Manager":
         with c_adm1:
             st.text_input("Full Patient Registration Name", key="new_pat_name")
             st.text_input("Mobile Contact Phone Line", key="new_pat_phone")
-            st.date_input("Date of Birth", min_value=date(1920, 1, 1), max_value=date.today(), key="new_pat_birth")
+            
+            # Upgraded from Date Picker to clean direct Age Number Input field
+            st.number_input("Patient Age", min_value=0, max_value=120, key="new_pat_age", step=1)
+            
             st.selectbox("Default Assigned Medical Center Site", options=CENTERS, key="new_pat_center")
             st.button("🚀 File Complete Patient Profile Intake", on_click=cb_add_new_patient, type="primary")
             
         with c_adm2:
             raw_patients = []
             for pid, d in st.session_state["patients_registry"].items():
-                raw_patients.append({"ID Profile Code": pid, "Full Name": d["name"], "Contact Line Mobile": d["phone"], "Clinic Facility Location": d["center"]})
+                # Table completely modified to include the explicit Age column block view
+                raw_patients.append({
+                    "ID Profile Code": pid, 
+                    "Full Name": d["name"], 
+                    "Contact Line Mobile": d["phone"], 
+                    "Age": d["age"]
+                })
             st.dataframe(pd.DataFrame(raw_patients), use_container_width=True, hide_index=True)
 
     with reg_tab2:
@@ -619,14 +624,9 @@ elif page == "👥 Patient Registration Manager":
         if edit_pid:
             current_profile = st.session_state["patients_registry"][edit_pid]
             
-            try:
-                curr_bdate = datetime.fromisoformat(current_profile["birth_date"]).date()
-            except Exception:
-                curr_bdate = date(2000, 1, 1)
-                
             edit_name = st.text_input("Modify Full Name", value=current_profile["name"])
             edit_phone = st.text_input("Modify Mobile Contact Phone Line", value=current_profile["phone"])
-            edit_bdate = st.date_input("Modify Date of Birth", value=curr_bdate, min_value=date(1920, 1, 1), max_value=date.today())
+            edit_age = st.number_input("Modify Patient Age", value=int(current_profile.get("age", 30)), min_value=0, max_value=120, step=1)
             
             curr_center_idx = CENTERS.index(current_profile["center"]) if current_profile["center"] in CENTERS else 0
             edit_center = st.selectbox("Modify Assigned Medical Center Site", options=CENTERS, index=curr_center_idx)
@@ -636,8 +636,7 @@ elif page == "👥 Patient Registration Manager":
                     "name": edit_name.strip(),
                     "phone": edit_phone.strip(),
                     "center": edit_center,
-                    "age": date.today().year - edit_bdate.year,
-                    "birth_date": edit_bdate.isoformat()
+                    "age": int(edit_age)
                 }
                 sync_input_to_db("patients_registry")
                 st.success(f"Profile {edit_pid} successfully overwritten inside registry file matrix.")
