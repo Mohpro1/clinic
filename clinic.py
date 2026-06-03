@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import pandas as pd
 import streamlit as st
 
@@ -245,7 +245,6 @@ def cb_save_session_log():
     st.session_state["session_log_date"] = date.today()
     st.success("Session saved successfully inside transaction ledger data.")
 
-# Dynamic State Callback to handle treatment catalog item insertion safely
 def cb_add_catalog_procedure():
     a_cat = st.session_state["adm_add_cat"]
     a_name = st.session_state["adm_add_name"].strip()
@@ -254,7 +253,7 @@ def cb_add_catalog_procedure():
     if a_name:
         st.session_state["treatment_catalog_db"][a_cat][a_name] = a_prc
         save_db(st.session_state["treatment_catalog_db"])
-        st.session_state["adm_add_name"] = ""  # Safe execution within pre-render cycle
+        st.session_state["adm_add_name"] = "" 
         st.toast(f"Appended '{a_name}' successfully!", icon="🚀")
     else:
         st.error("Procedure label value cannot be blank!")
@@ -262,14 +261,12 @@ def cb_add_catalog_procedure():
 # ==============================================================================
 # 4. PALMER NOTATION SYSTEM CONFIGURATION
 # ==============================================================================
-# Adult (Palmer Numbers 1-8)
 adult_quad_ur = [f"UR{i}" for i in range(8, 0, -1)]  
 adult_quad_ul = [f"UL{i}" for i in range(1, 9)]       
 adult_quad_lr = [f"LR{i}" for i in range(8, 0, -1)]  
 adult_quad_ll = [f"LL{i}" for i in range(1, 9)]       
 all_adult_palmer = adult_quad_ur + adult_quad_ul + adult_quad_lr + adult_quad_ll
 
-# Children (Palmer Letters A-E)
 child_labels = ["E", "D", "C", "B", "A"]
 child_quad_ur = [f"UR{ch}" for ch in child_labels]      
 child_quad_ul = [f"UL{ch}" for ch in reversed(child_labels)] 
@@ -278,6 +275,12 @@ child_quad_ll = [f"LL{ch}" for ch in reversed(child_labels)]
 all_child_palmer = child_quad_ur + child_quad_ul + child_quad_lr + child_quad_ll
 
 patient_selectors = {k: f"{v['name']} [{k}]" for k, v in st.session_state["patients_registry"].items()}
+
+# Generate timestamp intervals array for setup dropdown options
+HALF_HOUR_OPTIONS = []
+for hour in range(0, 24):
+    HALF_HOUR_OPTIONS.append(f"{hour:02d}:00")
+    HALF_HOUR_OPTIONS.append(f"{hour:02d}:30")
 
 # ==============================================================================
 # 5. UI LAYOUT ARCHITECTURE
@@ -402,15 +405,36 @@ elif page == "📅 Shift Scheduler & Booking Desk":
     
     col_sch1, col_sch2 = st.columns([1, 1])
     with col_sch1:
-        st.markdown("#### 🕒 Booking Blocks")
-        start_hour = st.number_input("Start Hour Window (24h)", min_value=0, max_value=23, value=9)
-        end_hour = st.number_input("End Hour Window (24h)", min_value=start_hour+1, max_value=24, value=17)
-        target_date = st.date_input("Select Plan Date Target", value=date.today())
+        st.markdown("#### 🕒 Booking Blocks & Working Shifts")
         
+        # Upgraded Start and End selectors to full half-hour dropdown lists
+        start_str = st.selectbox("Shift Start Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("09:00"))
+        end_str = st.selectbox("Shift End Time", options=HALF_HOUR_OPTIONS, index=HALF_HOUR_OPTIONS.index("17:00"))
+        
+        target_date = st.date_input("Select Plan Date Target", value=date.today())
         st.success(f"✅ Approved Working Shift Calendar Day: {target_date.strftime('%A')}")
-            
-        time_slots = [f"{h:02d}:00 - {h+1:02d}:00" for h in range(start_hour, end_hour)]
-        selected_slot = st.selectbox("1-Hour Scheduled Slots", options=time_slots)
+        
+        # New Feature: Let user explicitly choose between 30 Minutes or 1 Hour steps
+        duration_mode = st.radio("Appointment Step Duration", options=["30 Minutes", "1 Hour"], horizontal=True)
+        
+        # Parse times to generate dynamic list slots accurately
+        t_start = datetime.strptime(start_str, "%H:%M")
+        t_end = datetime.strptime(end_str, "%H:%M")
+        
+        time_slots = []
+        current_slot_time = t_start
+        step_delta = timedelta(minutes=30) if duration_mode == "30 Minutes" else timedelta(hours=1)
+        
+        if t_start >= t_end:
+            st.error("Error: Shift End Time must be later than the Start Time!")
+        else:
+            while current_slot_time + step_delta <= t_end:
+                slot_start_label = current_slot_time.strftime("%H:%M")
+                slot_end_label = (current_slot_time + step_delta).strftime("%H:%M")
+                time_slots.append(f"{slot_start_label} - {slot_end_label}")
+                current_slot_time += step_delta
+
+        selected_slot = st.selectbox("Available Matrix Scheduled Slots", options=time_slots if time_slots else ["N/A"])
         
         sch_pid = st.selectbox("Assign Patient ID", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x])
         sch_case_class = st.radio("Intake Case Classification Group", options=["New Case", "Open Case"], horizontal=True)
@@ -428,7 +452,7 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                 
         sch_priority = st.checkbox("High Priority Allocation Status Flag")
         
-        if st.button("📝 Book Appointment Slot Entry Line", type="primary"):
+        if st.button("📝 Book Appointment Slot Entry Line", type="primary") and time_slots:
             sched_list = st.session_state.get("clinic_schedule_ledger", [])
             sched_list.append({
                 "Date": target_date.isoformat(), "Day": target_date.strftime('%A'), "Time Slot": selected_slot,
@@ -461,8 +485,6 @@ elif page == "📋 Treatment Price Database Panel":
         st.selectbox("Select Domain Structure Category Block", options=list(st.session_state["treatment_catalog_db"].keys()), key="adm_add_cat")
         st.text_input("New Treatment Procedure Label Name", key="adm_add_name")
         st.number_input("Base Global Rate Cost Fee (TL ₺)", min_value=0.0, step=100.0, key="adm_add_price")
-        
-        # Uses the callback engine to avoid Streamlit Mutation Crashes
         st.button("🚀 Insert New Treatment Type Option", on_click=cb_add_catalog_procedure, type="primary")
 
     with adm_t2:
