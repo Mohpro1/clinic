@@ -5,9 +5,11 @@ import pandas as pd
 import streamlit as st
 
 # ==============================================================================
-# 1. CENTRAL DATA PERSISTENCE LAYER (STRICT STORAGE-FIRST)
+# 1. CENTRAL DATA PERSISTENCE LAYER (DIAGNOSTIC & SELF-CORRECTING)
 # ==============================================================================
-DB_FILE = "dental_app_data.json"
+# Forces the data file to live in the exact same folder as this script file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "dental_app_data.json")
 
 def json_serial(obj):
     if isinstance(obj, (datetime, date)):
@@ -18,8 +20,10 @@ def load_db():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except Exception as e:
+            st.sidebar.error(f"Read Error: {e}")
             return {}
     return {}
 
@@ -27,8 +31,9 @@ def save_db(data):
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, default=json_serial, indent=4, ensure_ascii=False)
+        st.sidebar.success("✅ File updated on disk!")
     except Exception as e:
-        st.error(f"Data Save Failure: {e}")
+        st.sidebar.error(f"❌ Write Permission Error: {e}")
 
 def get_state_val(key, default_value):
     db_data = load_db()
@@ -44,7 +49,6 @@ def get_state_val(key, default_value):
                 st.session_state[key] = val
         else:
             st.session_state[key] = default_value
-            # Immediately commit default structure to file if it didn't exist
             db_data[key] = default_value
             save_db(db_data)
     return st.session_state[key]
@@ -56,12 +60,12 @@ def sync_input_to_db(key):
         save_db(db_data)
 
 # ==============================================================================
-# 2. STRICTLY CLEAN STRUCTURAL INITIALIZATION (NO FORCED DEFAULT RECORDS)
+# 2. STRICT STRUCTURAL INITIALIZATION
 # ==============================================================================
 CENTERS = ["Istanbul Tower", "Elsifa Medical Center"]
 PAYMENT_METHODS = ["Cash", "Bank Transfer", "Credit Card"]
 
-# Ensure structure is sound without adding fake text rows
+# Setup clean initial keys if they don't exist on disk yet
 catalog_db = get_state_val("treatment_catalog_db", {"Adult Dentistry": {}, "Children Dentistry": {}})
 patients_db = get_state_val("patients_registry", {})
 cases_db = get_state_val("patient_cases_tracker", {})
@@ -69,7 +73,7 @@ history_db = get_state_val("tooth_history_ledger", {})
 finance_db = get_state_val("finance_ledger", {})
 schedule_db = get_state_val("clinic_schedule_ledger", [])
 
-# Core Session state variables
+# Component session tracking memory keys
 get_state_val("session_patient_id", "")
 get_state_val("session_category", "Adult Dentistry")
 get_state_val("session_treatment", "")
@@ -89,8 +93,13 @@ get_state_val("new_pat_phone", "")
 get_state_val("new_pat_age", 30)
 get_state_val("new_pat_center", CENTERS[0])
 
+# Side layout storage path view
+st.sidebar.markdown("### 🔍 System Storage Status")
+st.sidebar.text(f"Folder:\n{BASE_DIR}")
+st.sidebar.text(f"File Target:\n{os.path.basename(DB_FILE)}")
+
 # ==============================================================================
-# 3. GLOBAL STATE CALLBACK OPERATORS
+# 3. BUTTON CALLBACK ENGINES
 # ==============================================================================
 def cb_add_new_patient():
     name = st.session_state.get("new_pat_name", "").strip()
@@ -149,14 +158,15 @@ def cb_save_session_log():
     est_sessions = int(st.session_state["session_est_count"])
     
     if not pid:
-        st.error("Please pick or register a valid patient first.")
+        st.error("Please pick or register a valid patient profile first.")
         return
     if not teeth: 
-        st.error("Please pick active target teeth from the matrix layout.")
+        st.error("Please pick active target teeth from the matrix layouts below.")
         return
         
     center = st.session_state["patients_registry"][pid]["center"]
     
+    # Track repeated follow-up sessions without recalculating basic catalog costs
     if nature == "Repeated Session (Follow-up)":
         unit_rate = 0.0
     else:
@@ -216,10 +226,10 @@ def cb_save_session_log():
     st.session_state["session_amount_paid"] = 0.0
     st.session_state["session_discount_input"] = 0.0
     st.session_state["session_log_date"] = date.today()
-    st.success("Session saved successfully!")
+    st.success("Session entry committed successfully into local data logs!")
 
 # ==============================================================================
-# 4. PALMER NOTATION SYSTEM CONFIGURATION
+# 4. PALMER CHART GRID LABELS
 # ==============================================================================
 adult_quad_ur = [f"UR{i}" for i in range(8, 0, -1)]  
 adult_quad_ul = [f"UL{i}" for i in range(1, 9)]       
@@ -254,7 +264,7 @@ def get_global_open_cases():
     return global_cases
 
 # ==============================================================================
-# 5. UI LAYOUT ARCHITECTURE
+# 5. UI LAYOUT & SYSTEM GRAPHICS
 # ==============================================================================
 st.set_page_config(page_title="Havence System", layout="wide")
 
@@ -305,7 +315,7 @@ if page == "🩺 Active Session Desk":
         available_procedures = list(st.session_state["treatment_catalog_db"].get(active_cat, {}).keys())
         
         if not available_procedures:
-            st.info("No procedures found under this category. Please add prices in the Catalog menu.")
+            st.info("No procedures found under this category block. Please add price listings in the Database panel first.")
         else:
             st.selectbox("Procedure Operational Selection Line Plan", options=available_procedures, key="session_treatment")
             
@@ -385,7 +395,7 @@ elif page == "📅 Shift Scheduler & Booking Desk":
 
     with sch_tab1:
         if not patient_selectors:
-            st.info("Please register patients to open booking calendars.")
+            st.info("Please register patients to unlock scheduling matrix options.")
         else:
             col_sch1, col_sch2 = st.columns([1, 1])
             with col_sch1:
@@ -435,7 +445,7 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                     })
                     st.session_state["clinic_schedule_ledger"] = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                     sync_input_to_db("clinic_schedule_ledger")
-                    st.success("Slot verified and logged down!")
+                    st.success("Slot booked successfully!")
                     st.rerun()
 
             with col_sch2:
@@ -473,7 +483,7 @@ elif page == "📋 Treatment Price Database Panel":
             if st.session_state["adm_add_name"].strip():
                 st.session_state["treatment_catalog_db"][st.session_state["adm_add_cat"]][st.session_state["adm_add_name"].strip()] = float(st.session_state["adm_add_price"])
                 sync_input_to_db("treatment_catalog_db")
-                st.success("Added successfully!")
+                st.success("Treatment type added to base rules!")
 
     with adm_t2:
         st.selectbox("Choose Target Category", options=list(st.session_state["treatment_catalog_db"].keys()), key="adm_edit_cat")
@@ -484,7 +494,7 @@ elif page == "📋 Treatment Price Database Panel":
             if st.button("💾 Apply Price Changes", type="primary"):
                 st.session_state["treatment_catalog_db"][st.session_state["adm_edit_cat"]][st.session_state["adm_edit_treat"]] = float(st.session_state["adm_edit_price"])
                 sync_input_to_db("treatment_catalog_db")
-                st.success("Price updated!")
+                st.success("Price profile metrics shifted successfully!")
 
     st.markdown("---")
     flat_records = []
@@ -495,24 +505,24 @@ elif page == "📋 Treatment Price Database Panel":
         st.dataframe(pd.DataFrame(flat_records), use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------------------------------
-# PAGE 4: PATIENT HISTORY LOOKUP
+# PAGE 4: PATIENT HISTORY LOOKUP (DIRECT EXTRA PAYMENTS DETECTED HERE)
 # ------------------------------------------------------------------------------
 elif page == "🔍 Patient History Lookup":
     st.subheader("🔍 Patient Comprehensive File Tracking Room")
     if not patient_selectors:
-        st.info("No records found. Complete a registration first.")
+        st.info("No records logged. Complete a profile registration first.")
     else:
         lookup_pid = st.selectbox("Select Patient Target Index File", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x])
         p_profile = st.session_state["patients_registry"][lookup_pid]
         
-        st.markdown(f"**Name:** {p_profile['name']} | **Contact:** {p_profile['phone']} | **Default Site:** {p_profile['center']}")
+        st.markdown(f"**Name:** {p_profile['name']} | **Contact:** {p_profile['phone']} | **Site Location:** {p_profile['center']}")
         
         h_tab1, h_tab2, h_tab3 = st.tabs(["📊 Case Lifecycles", "💰 Account Transaction Statement Logs", "🦷 Tooth Charts"])
         
         with h_tab1:
             pt_cases = st.session_state.get("patient_cases_tracker", {}).get(lookup_pid, [])
             if pt_cases: st.dataframe(pd.DataFrame(pt_cases), use_container_width=True, hide_index=True)
-            else: st.info("No recorded cases found.")
+            else: st.info("No recorded session tracking streams attached to this profile.")
                 
         with h_tab2:
             p_tx_history = st.session_state["finance_ledger"].get(lookup_pid, [])
@@ -584,7 +594,7 @@ elif page == "👥 Patient Registration Manager":
 
     with reg_tab2:
         if not patient_selectors:
-            st.info("Registry is empty.")
+            st.info("Registry index database is currently empty.")
         else:
             edit_pid = st.selectbox("Select Patient to Edit", options=list(patient_selectors.keys()), format_func=lambda x: patient_selectors[x])
             if edit_pid:
@@ -622,8 +632,8 @@ elif page == "💰 Financial Analytics Matrix":
             if not df_receivables.empty:
                 st.dataframe(df_receivables, use_container_width=True, hide_index=True)
             else:
-                st.success("All balances completely cleared!")
-        else: st.info("No balances found.")
+                st.success("All patient balances are completely cleared!")
+        else: st.info("No recorded active financial debt values found.")
 
     with fin_tab2:
         if not df_master.empty:
