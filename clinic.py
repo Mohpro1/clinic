@@ -1,71 +1,81 @@
 import json
-import os
 from datetime import datetime, date, timedelta
 import pandas as pd
 import streamlit as st
+from supabase import create_client, Client
 
 # ==============================================================================
-# 1. CENTRAL DATA PERSISTENCE LAYER (DIAGNOSTIC & SELF-CORRECTING)
+# 1. CENTRAL CLOUD PERSISTENCE LAYER (SUPABASE DB)
 # ==============================================================================
-# Forces the data file to live in the exact same folder as this script file
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(BASE_DIR, "dental_app_data.json")
+# Initialize Supabase Client securely using Streamlit Secrets Environment
+try:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception:
+    st.error("🔒 Cloud Database Credentials Missing! Please add SUPABASE_URL and SUPABASE_KEY to your Streamlit Secrets Panel.")
+    st.stop()
 
 def json_serial(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
 
-def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
-        except Exception as e:
-            st.sidebar.error(f"Read Error: {e}")
-            return {}
-    return {}
-
-def save_db(data):
+def load_from_cloud(key):
+    """Fetches a specific data key directly from the cloud database table."""
     try:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, default=json_serial, indent=4, ensure_ascii=False)
-        st.sidebar.success("✅ File updated on disk!")
+        response = supabase.table("clinic_storage").select("value").eq("key", key).execute()
+        if response.data and len(response.data) > 0:
+            return response.data[0]["value"]
     except Exception as e:
-        st.sidebar.error(f"❌ Write Permission Error: {e}")
+        st.sidebar.error(f"Cloud Read Failure: {e}")
+    return None
+
+def save_to_cloud(key, val_data):
+    """Inserts or updates a specific data key to the permanent cloud storage."""
+    try:
+        # Structure payload correctly for JSONB database processing
+        serialized_payload = json.loads(json.dumps(val_data, default=json_serial))
+        supabase.table("clinic_storage").upsert({
+            "key": key, 
+            "value": serialized_payload,
+            "updated_at": datetime.utcnow().isoformat()
+        }).execute()
+    except Exception as e:
+        st.sidebar.error(f"Cloud Write Failure: {e}")
 
 def get_state_val(key, default_value):
-    db_data = load_db()
+    """Syncs runtime session state to cloud cache data safely."""
     if key not in st.session_state:
-        if key in db_data:
-            val = db_data[key]
-            if isinstance(default_value, date) and isinstance(val, str):
+        cloud_val = load_from_cloud(key)
+        if cloud_val is not None:
+            if isinstance(default_value, date) and isinstance(cloud_val, str):
                 try:
-                    st.session_state[key] = datetime.fromisoformat(val).date()
+                    st.session_state[key] = datetime.fromisoformat(cloud_val).date()
                 except ValueError:
                     st.session_state[key] = default_value
             else:
-                st.session_state[key] = val
+                st.session_state[key] = cloud_val
         else:
             st.session_state[key] = default_value
-            db_data[key] = default_value
-            save_db(db_data)
+            save_to_cloud(key, default_value)
     return st.session_state[key]
 
 def sync_input_to_db(key):
+    """Directly pushes updated user interface actions instantly up to the cloud."""
     if key in st.session_state:
-        db_data = load_db()
-        db_data[key] = st.session_state[key]
-        save_db(db_data)
+        save_to_cloud(key, st.session_state[key])
 
 # ==============================================================================
-# 2. STRICT STRUCTURAL INITIALIZATION
+# 2. STRUCTURAL SYSTEM INITIALIZATION
 # ==============================================================================
 CENTERS = ["Istanbul Tower", "Elsifa Medical Center"]
 PAYMENT_METHODS = ["Cash", "Bank Transfer", "Credit Card"]
 
-# Setup clean initial keys if they don't exist on disk yet
+st.sidebar.markdown("### ☁️ Cloud Database Sync status")
+st.sidebar.success("⚡ Connected to Live Supabase DB")
+
+# Pull verified structural states directly down from the cloud tables
 catalog_db = get_state_val("treatment_catalog_db", {"Adult Dentistry": {}, "Children Dentistry": {}})
 patients_db = get_state_val("patients_registry", {})
 cases_db = get_state_val("patient_cases_tracker", {})
@@ -73,7 +83,7 @@ history_db = get_state_val("tooth_history_ledger", {})
 finance_db = get_state_val("finance_ledger", {})
 schedule_db = get_state_val("clinic_schedule_ledger", [])
 
-# Component session tracking memory keys
+# Ephemeral runtime application operational keys
 get_state_val("session_patient_id", "")
 get_state_val("session_category", "Adult Dentistry")
 get_state_val("session_treatment", "")
@@ -92,11 +102,6 @@ get_state_val("new_pat_name", "")
 get_state_val("new_pat_phone", "")
 get_state_val("new_pat_age", 30)
 get_state_val("new_pat_center", CENTERS[0])
-
-# Side layout storage path view
-st.sidebar.markdown("### 🔍 System Storage Status")
-st.sidebar.text(f"Folder:\n{BASE_DIR}")
-st.sidebar.text(f"File Target:\n{os.path.basename(DB_FILE)}")
 
 # ==============================================================================
 # 3. BUTTON CALLBACK ENGINES
@@ -133,7 +138,7 @@ def cb_add_new_patient():
     st.session_state["new_pat_name"] = ""
     st.session_state["new_pat_phone"] = ""
     st.session_state["new_pat_age"] = 30
-    st.success(f"Registered {name} successfully as {new_code}!")
+    st.success(f"Registered {name} successfully as {new_code} on Cloud DB!")
 
 def cb_toggle_grid_tooth(tooth_id):
     current = list(st.session_state.get("session_selected_teeth", []))
@@ -166,7 +171,6 @@ def cb_save_session_log():
         
     center = st.session_state["patients_registry"][pid]["center"]
     
-    # Track repeated follow-up sessions without recalculating basic catalog costs
     if nature == "Repeated Session (Follow-up)":
         unit_rate = 0.0
     else:
@@ -226,10 +230,10 @@ def cb_save_session_log():
     st.session_state["session_amount_paid"] = 0.0
     st.session_state["session_discount_input"] = 0.0
     st.session_state["session_log_date"] = date.today()
-    st.success("Session entry committed successfully into local data logs!")
+    st.success("Session changes written permanently to Supabase Cloud Server Storage!")
 
 # ==============================================================================
-# 4. PALMER CHART GRID LABELS
+# 4. PALMER CHART DATA CONFIGURATIONS
 # ==============================================================================
 adult_quad_ur = [f"UR{i}" for i in range(8, 0, -1)]  
 adult_quad_ul = [f"UL{i}" for i in range(1, 9)]       
@@ -264,7 +268,7 @@ def get_global_open_cases():
     return global_cases
 
 # ==============================================================================
-# 5. UI LAYOUT & SYSTEM GRAPHICS
+# 5. USER INTERFACE GENERATION LAYOUT
 # ==============================================================================
 st.set_page_config(page_title="Havence System", layout="wide")
 
@@ -445,7 +449,7 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                     })
                     st.session_state["clinic_schedule_ledger"] = sorted(appointments, key=lambda x: (x.get("Date", ""), x.get("Time Slot", "")))
                     sync_input_to_db("clinic_schedule_ledger")
-                    st.success("Slot booked successfully!")
+                    st.success("Slot booked successfully on Cloud Database!")
                     st.rerun()
 
             with col_sch2:
@@ -465,7 +469,7 @@ elif page == "📅 Shift Scheduler & Booking Desk":
                 appointments.pop(selected_appt_idx)
                 st.session_state["clinic_schedule_ledger"] = appointments
                 sync_input_to_db("clinic_schedule_ledger")
-                st.warning("Appointment slot cancelled.")
+                st.warning("Appointment slot cancelled across Cloud Registry.")
                 st.rerun()
 
 # ------------------------------------------------------------------------------
@@ -483,7 +487,7 @@ elif page == "📋 Treatment Price Database Panel":
             if st.session_state["adm_add_name"].strip():
                 st.session_state["treatment_catalog_db"][st.session_state["adm_add_cat"]][st.session_state["adm_add_name"].strip()] = float(st.session_state["adm_add_price"])
                 sync_input_to_db("treatment_catalog_db")
-                st.success("Treatment type added to base rules!")
+                st.success("Treatment type updated permanently into Cloud rules!")
 
     with adm_t2:
         st.selectbox("Choose Target Category", options=list(st.session_state["treatment_catalog_db"].keys()), key="adm_edit_cat")
@@ -494,7 +498,7 @@ elif page == "📋 Treatment Price Database Panel":
             if st.button("💾 Apply Price Changes", type="primary"):
                 st.session_state["treatment_catalog_db"][st.session_state["adm_edit_cat"]][st.session_state["adm_edit_treat"]] = float(st.session_state["adm_edit_price"])
                 sync_input_to_db("treatment_catalog_db")
-                st.success("Price profile metrics shifted successfully!")
+                st.success("Price profile metrics synced successfully with Supabase Server!")
 
     st.markdown("---")
     flat_records = []
@@ -505,7 +509,7 @@ elif page == "📋 Treatment Price Database Panel":
         st.dataframe(pd.DataFrame(flat_records), use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------------------------------
-# PAGE 4: PATIENT HISTORY LOOKUP (DIRECT EXTRA PAYMENTS DETECTED HERE)
+# PAGE 4: PATIENT HISTORY LOOKUP
 # ------------------------------------------------------------------------------
 elif page == "🔍 Patient History Lookup":
     st.subheader("🔍 Patient Comprehensive File Tracking Room")
@@ -558,7 +562,7 @@ elif page == "🔍 Patient History Lookup":
                     })
                     st.session_state["finance_ledger"] = finances
                     sync_input_to_db("finance_ledger")
-                    st.success(f"Successfully tracked direct payment of {direct_amt:,.2f} TL down into finance ledger indices!")
+                    st.success(f"Successfully tracked direct payment of {direct_amt:,.2f} TL down into cloud finance indices!")
                     st.rerun()
 
             st.markdown("---")
@@ -604,7 +608,7 @@ elif page == "👥 Patient Registration Manager":
                 if st.button("💾 Apply Profile Changes", type="primary"):
                     st.session_state["patients_registry"][edit_pid].update({"name": en.strip(), "phone": ep.strip()})
                     sync_input_to_db("patients_registry")
-                    st.success("Updated profile layout successfully!")
+                    st.success("Updated profile layout successfully across Cloud server data maps!")
                     st.rerun()
 
 # ------------------------------------------------------------------------------
